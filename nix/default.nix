@@ -88,7 +88,7 @@ pkgs.buildGoModule {
   pname = "gitness";
   inherit src;
   version = gitnessVersion;
-  vendorSha256 = "sha256-xKB3UuCSgl5Tfy34SWf3cfZOqVSqlM2gaBeJaqJji9Y=";
+  vendorSha256 = "sha256-6TL6jJtVkXucc4rZrRUtZ2pKqCqjb44QOk/BuIU5yk0=";
 
   nativeBuildInputs = [
     pkgs.makeWrapper
