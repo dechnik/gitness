@@ -20,6 +20,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/repo"
 	"github.com/harness/gitness/app/api/request"
 	"github.com/harness/gitness/app/api/usererror"
+	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/gitrpc"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
@@ -154,6 +155,31 @@ type deleteTagRequest struct {
 type getRawDiffRequest struct {
 	repoRequest
 	Range string `path:"range" example:"main..dev"`
+}
+
+// ruleType is a plugin for types.RuleType to allow using oneof.
+type ruleType string
+
+func (ruleType) Enum() []interface{} {
+	return []interface{}{protection.TypeBranch}
+}
+
+// ruleDefinition is a plugin for types.Rule Definition to allow using oneof.
+type ruleDefinition struct{}
+
+func (ruleDefinition) JSONSchemaOneOf() []interface{} {
+	return []interface{}{protection.Branch{}}
+}
+
+type rule struct {
+	types.Rule
+
+	// overshadow Type and Definition to enable oneof.
+	Type       ruleType       `json:"type"`
+	Definition ruleDefinition `json:"definition"`
+
+	// overshadow Pattern to correct the type
+	Pattern protection.Pattern `json:"pattern"`
 }
 
 var queryParameterGitRef = openapi3.ParameterOrRef{
@@ -577,6 +603,7 @@ func repoOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&opCreateBranch, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&opCreateBranch, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&opCreateBranch, new(usererror.Error), http.StatusForbidden)
+	_ = reflector.SetJSONResponse(&opCreateBranch, new(types.RulesViolations), http.StatusUnprocessableEntity)
 	_ = reflector.Spec.AddOperation(http.MethodPost, "/repos/{repo_ref}/branches", opCreateBranch)
 
 	opGetBranch := openapi3.Operation{}
@@ -599,6 +626,7 @@ func repoOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&opDeleteBranch, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&opDeleteBranch, new(usererror.Error), http.StatusForbidden)
 	_ = reflector.SetJSONResponse(&opDeleteBranch, new(usererror.Error), http.StatusNotFound)
+	_ = reflector.SetJSONResponse(&opDeleteBranch, new(types.RulesViolations), http.StatusUnprocessableEntity)
 	_ = reflector.Spec.AddOperation(http.MethodDelete, "/repos/{repo_ref}/branches/{branch_name}", opDeleteBranch)
 
 	opListBranches := openapi3.Operation{}
@@ -639,6 +667,7 @@ func repoOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&opCreateTag, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&opCreateTag, new(usererror.Error), http.StatusForbidden)
 	_ = reflector.SetJSONResponse(&opCreateTag, new(usererror.Error), http.StatusConflict)
+	_ = reflector.SetJSONResponse(&opCreateTag, new(types.RulesViolations), http.StatusUnprocessableEntity)
 	_ = reflector.Spec.AddOperation(http.MethodPost, "/repos/{repo_ref}/tags", opCreateTag)
 
 	opDeleteTag := openapi3.Operation{}
@@ -651,18 +680,20 @@ func repoOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&opDeleteTag, new(usererror.Error), http.StatusForbidden)
 	_ = reflector.SetJSONResponse(&opDeleteTag, new(usererror.Error), http.StatusNotFound)
 	_ = reflector.SetJSONResponse(&opDeleteTag, new(usererror.Error), http.StatusConflict)
+	_ = reflector.SetJSONResponse(&opDeleteTag, new(types.RulesViolations), http.StatusUnprocessableEntity)
 	_ = reflector.Spec.AddOperation(http.MethodDelete, "/repos/{repo_ref}/tags/{tag_name}", opDeleteTag)
 
 	opCommitFiles := openapi3.Operation{}
 	opCommitFiles.WithTags("repository")
 	opCommitFiles.WithMapOfAnything(map[string]interface{}{"operationId": "commitFiles"})
 	_ = reflector.SetRequest(&opCommitFiles, new(commitFilesRequest), http.MethodPost)
-	_ = reflector.SetJSONResponse(&opCommitFiles, repo.CommitFilesResponse{}, http.StatusOK)
+	_ = reflector.SetJSONResponse(&opCommitFiles, types.CommitFilesResponse{}, http.StatusOK)
 	_ = reflector.SetJSONResponse(&opCommitFiles, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&opCommitFiles, new(usererror.Error), http.StatusBadRequest)
 	_ = reflector.SetJSONResponse(&opCommitFiles, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&opCommitFiles, new(usererror.Error), http.StatusForbidden)
 	_ = reflector.SetJSONResponse(&opCommitFiles, new(usererror.Error), http.StatusNotFound)
+	_ = reflector.SetJSONResponse(&opCommitFiles, new(types.RulesViolations), http.StatusUnprocessableEntity)
 	_ = reflector.Spec.AddOperation(http.MethodPost, "/repos/{repo_ref}/commits", opCommitFiles)
 
 	opDiff := openapi3.Operation{}
@@ -713,8 +744,12 @@ func repoOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetRequest(&opRuleAdd, struct {
 		repoRequest
 		repo.RuleCreateInput
+
+		// overshadow "definition"
+		Type       ruleType       `json:"type"`
+		Definition ruleDefinition `json:"definition"`
 	}{}, http.MethodPost)
-	_ = reflector.SetJSONResponse(&opRuleAdd, &types.Rule{}, http.StatusCreated)
+	_ = reflector.SetJSONResponse(&opRuleAdd, rule{}, http.StatusCreated)
 	_ = reflector.SetJSONResponse(&opRuleAdd, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&opRuleAdd, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&opRuleAdd, new(usererror.Error), http.StatusForbidden)
@@ -742,8 +777,12 @@ func repoOperations(reflector *openapi3.Reflector) {
 		repoRequest
 		RuleUID string `path:"rule_uid"`
 		repo.RuleUpdateInput
+
+		// overshadow Type and Definition to enable oneof.
+		Type       ruleType       `json:"type"`
+		Definition ruleDefinition `json:"definition"`
 	}{}, http.MethodPatch)
-	_ = reflector.SetJSONResponse(&opRuleUpdate, &types.Rule{}, http.StatusOK)
+	_ = reflector.SetJSONResponse(&opRuleUpdate, rule{}, http.StatusOK)
 	_ = reflector.SetJSONResponse(&opRuleUpdate, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&opRuleUpdate, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&opRuleUpdate, new(usererror.Error), http.StatusForbidden)
@@ -760,7 +799,7 @@ func repoOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetRequest(&opRuleList, &struct {
 		repoRequest
 	}{}, http.MethodGet)
-	_ = reflector.SetJSONResponse(&opRuleList, []types.Rule{}, http.StatusOK)
+	_ = reflector.SetJSONResponse(&opRuleList, []rule{}, http.StatusOK)
 	_ = reflector.SetJSONResponse(&opRuleList, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&opRuleList, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&opRuleList, new(usererror.Error), http.StatusForbidden)
@@ -774,7 +813,7 @@ func repoOperations(reflector *openapi3.Reflector) {
 		repoRequest
 		RuleUID string `path:"rule_uid"`
 	}{}, http.MethodGet)
-	_ = reflector.SetJSONResponse(&opRuleGet, []types.Rule{}, http.StatusOK)
+	_ = reflector.SetJSONResponse(&opRuleGet, []rule{}, http.StatusOK)
 	_ = reflector.SetJSONResponse(&opRuleGet, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&opRuleGet, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&opRuleGet, new(usererror.Error), http.StatusForbidden)

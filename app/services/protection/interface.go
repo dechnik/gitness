@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 )
@@ -33,12 +34,13 @@ type (
 
 	// Protection defines interface for branch protection.
 	Protection interface {
-		// CanMerge tests if a pull request can be merged.
 		CanMerge(ctx context.Context, in CanMergeInput) (CanMergeOutput, []types.RuleViolations, error)
+		CanModifyRef(ctx context.Context, in CanModifyRefInput) ([]types.RuleViolations, error)
 	}
 
 	CanMergeInput struct {
 		Actor        *types.Principal
+		IsSpaceOwner bool
 		Membership   *types.Membership
 		TargetRepo   *types.Repository
 		SourceRepo   *types.Repository
@@ -46,12 +48,37 @@ type (
 		Reviewers    []*types.PullReqReviewer
 		Method       enum.MergeMethod
 		CheckResults []types.CheckResult
-		// TODO: Add code owners
+		CodeOwners   *codeowners.Evaluation
 	}
 
 	CanMergeOutput struct {
 		DeleteSourceBranch bool
 	}
+
+	CanModifyRefInput struct {
+		Actor        *types.Principal
+		IsSpaceOwner bool
+		Repo         *types.Repository
+		RefAction    RefAction
+		RefType      RefType
+		RefNames     []string
+	}
+
+	RefType int
+
+	RefAction int
+)
+
+const (
+	RefTypeRaw RefType = iota
+	RefTypeBranch
+	RefTypeTag
+)
+
+const (
+	RefActionCreate RefAction = iota
+	RefActionDelete
+	RefActionUpdate
 )
 
 var (

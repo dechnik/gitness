@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package request
+package types
 
-const (
-	// TODO: have shared constants across all services?
-	HeaderRequestID     = "X-Request-Id"
-	HeaderUserAgent     = "User-Agent"
-	HeaderAuthorization = "Authorization"
-)
+// CommitFilesResponse holds commit id.
+type CommitFilesResponse struct {
+	CommitID string `json:"commit_id"`
+}

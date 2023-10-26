@@ -18,30 +18,39 @@ import (
 	"context"
 	"crypto/sha512"
 	"encoding/base32"
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/harness/gitness/app/api/usererror"
 	"github.com/harness/gitness/types"
 
 	"github.com/drone/go-scm/scm"
+	"github.com/drone/go-scm/scm/driver/bitbucket"
 	"github.com/drone/go-scm/scm/driver/github"
 	"github.com/drone/go-scm/scm/driver/gitlab"
+	"github.com/drone/go-scm/scm/driver/stash"
+	"github.com/drone/go-scm/scm/transport"
 	"github.com/drone/go-scm/scm/transport/oauth2"
 )
 
 type ProviderType string
 
 const (
-	ProviderTypeGitHub ProviderType = "github"
-	ProviderTypeGitLab ProviderType = "gitlab"
+	ProviderTypeGitHub    ProviderType = "github"
+	ProviderTypeGitLab    ProviderType = "gitlab"
+	ProviderTypeBitbucket ProviderType = "bitbucket"
+	ProviderTypeStash     ProviderType = "stash"
 )
 
 func (p ProviderType) Enum() []any {
 	return []any{
 		ProviderTypeGitHub,
 		ProviderTypeGitLab,
+		ProviderTypeBitbucket,
+		ProviderTypeStash,
 	}
 }
 
@@ -91,56 +100,97 @@ func hash(s string) string {
 	return base32.StdEncoding.EncodeToString(h.Sum(nil)[:10])
 }
 
-func getClient(provider Provider, authReq bool) (*scm.Client, error) {
-	if authReq && (provider.Username == "" || provider.Password == "") {
-		return nil, usererror.BadRequest("scm provider authentication credentials missing")
+func oauthTransport(token string) (http.RoundTripper, error) {
+	if token == "" {
+		return nil, errors.New("no token provided")
 	}
+	return &oauth2.Transport{
+		Source: oauth2.StaticTokenSource(&scm.Token{Token: token}),
+	}, nil
+}
 
+func basicAuthTransport(username, password string) (http.RoundTripper, error) {
+	if username == "" || password == "" {
+		return nil, errors.New("username or password not provided")
+	}
+	return &transport.BasicAuth{
+		Username: username,
+		Password: password,
+	}, nil
+}
+
+// getScmClientWithTransport creates an SCM client along with the necessary transport
+// layer depending on the provider. For example, for bitbucket we support app passwords
+// so the auth transport is BasicAuth whereas it's Oauth for other providers.
+func getScmClientWithTransport(provider Provider) (*scm.Client, error) { //nolint:gocognit
 	var c *scm.Client
-	var err error
-
+	var err, transportErr error
+	var transport http.RoundTripper
 	switch provider.Type {
 	case "":
-		return nil, usererror.BadRequest("scm provider can not be empty")
+		return nil, errors.New("scm provider can not be empty")
 
 	case ProviderTypeGitHub:
 		if provider.Host != "" {
 			c, err = github.New(provider.Host)
 			if err != nil {
-				return nil, usererror.BadRequestf("scm provider Host invalid: %s", err.Error())
+				return nil, fmt.Errorf("scm provider Host invalid: %w", err)
 			}
 		} else {
 			c = github.NewDefault()
 		}
+		transport, transportErr = oauthTransport(provider.Password)
 
 	case ProviderTypeGitLab:
 		if provider.Host != "" {
 			c, err = gitlab.New(provider.Host)
 			if err != nil {
-				return nil, usererror.BadRequestf("scm provider Host invalid: %s", err.Error())
+				return nil, fmt.Errorf("scm provider Host invalid: %w", err)
 			}
 		} else {
 			c = gitlab.NewDefault()
 		}
+		transport, transportErr = oauthTransport(provider.Password)
+
+	case ProviderTypeBitbucket:
+		if provider.Host != "" {
+			c, err = bitbucket.New(provider.Host)
+			if err != nil {
+				return nil, fmt.Errorf("scm provider Host invalid: %w", err)
+			}
+		} else {
+			c = bitbucket.NewDefault()
+		}
+		transport, transportErr = basicAuthTransport(provider.Username, provider.Password)
+
+	case ProviderTypeStash:
+		if provider.Host != "" {
+			c, err = stash.New(provider.Host)
+			if err != nil {
+				return nil, fmt.Errorf("scm provider Host invalid: %w", err)
+			}
+		} else {
+			c = stash.NewDefault()
+		}
+		transport, transportErr = oauthTransport(provider.Password)
 
 	default:
-		return nil, usererror.BadRequestf("unsupported scm provider: %s", provider)
+		return nil, fmt.Errorf("unsupported scm provider: %s", provider)
 	}
 
-	if provider.Password != "" {
-		c.Client = &http.Client{
-			Transport: &oauth2.Transport{
-				Source: oauth2.StaticTokenSource(&scm.Token{Token: provider.Password}),
-			},
-		}
+	if transportErr != nil {
+		return nil, fmt.Errorf("could not create transport: %w", transportErr)
 	}
+
+	c.Client = &http.Client{Transport: transport}
 
 	return c, nil
 }
+
 func LoadRepositoryFromProvider(ctx context.Context, provider Provider, repoSlug string) (RepositoryInfo, error) {
-	scmClient, err := getClient(provider, false)
+	scmClient, err := getScmClientWithTransport(provider)
 	if err != nil {
-		return RepositoryInfo{}, err
+		return RepositoryInfo{}, usererror.BadRequestf("could not create client: %s", err)
 	}
 
 	if repoSlug == "" {
@@ -166,31 +216,20 @@ func LoadRepositoriesFromProviderSpace(
 	provider Provider,
 	spaceSlug string,
 ) ([]RepositoryInfo, error) {
-	scmClient, err := getClient(provider, true)
+	scmClient, err := getScmClientWithTransport(provider)
 	if err != nil {
-		return nil, err
+		return nil, usererror.BadRequestf("could not create client: %s", err)
 	}
 
 	if spaceSlug == "" {
 		return nil, usererror.BadRequest("provider space identifier is missing")
 	}
 
-	const pageSize = 100
-	opts := scm.RepoListOptions{
-		ListOptions: scm.ListOptions{
-			Page: 0,
-			Size: pageSize,
-		},
-		RepoSearchTerm: scm.RepoSearchTerm{
-			User: spaceSlug,
-		},
-	}
-
 	repos := make([]RepositoryInfo, 0)
-	for {
-		opts.Page++
+	opts := scm.ListOptions{Size: 100}
 
-		scmRepos, scmResp, err := scmClient.Repositories.ListV2(ctx, opts)
+	for {
+		scmRepos, scmResp, err := scmClient.Repositories.List(ctx, opts)
 		if err = convertSCMError(provider, spaceSlug, scmResp, err); err != nil {
 			return nil, err
 		}
@@ -201,7 +240,7 @@ func LoadRepositoriesFromProviderSpace(
 
 		for _, scmRepo := range scmRepos {
 			// in some cases the namespace filter isn't working (e.g. Gitlab)
-			if scmRepo.Namespace != spaceSlug {
+			if !strings.EqualFold(scmRepo.Namespace, spaceSlug) {
 				continue
 			}
 
@@ -212,6 +251,13 @@ func LoadRepositoriesFromProviderSpace(
 				IsPublic:      !scmRepo.Private,
 				DefaultBranch: scmRepo.Branch,
 			})
+		}
+
+		opts.Page = scmResp.Page.Next
+		opts.URL = scmResp.Page.NextURL
+
+		if opts.Page == 0 && opts.URL == "" {
+			break
 		}
 	}
 

@@ -364,6 +364,7 @@ webhookPRBranchUpdated: PR branch updated
 webhookPRCreated: PR created
 webhookPRReopened: PR reopened
 webhookPRClosed: PR closed
+webhookPRCommentCreated: PR comment created
 nameYourWebhook: Name your webhook
 submitReview: Submit Review
 approve: Approve
@@ -695,6 +696,7 @@ secrets:
   name: Secret Name
   failedToCreate: Failed to create Secret. Please try again.
   enterSecretName: Enter Secret name
+  enterSecretValue: Enter Secret value
   createSecret: Create Secret
   createSuccess: Secret created successfully
   secretDeleted: Secret {uid} deleted.
@@ -704,7 +706,7 @@ secrets:
   failedToUpdateSecret: Failed to update Secret. Please try again.
   deleteSecret: Delete secret
   updateSecret: Update secret
-  showValue: Show Value?
+  showValue: Show Value
 userUpdateSuccess: 'User updated successfully'
 viewFile: View File
 searchResult: 'Search Result {count}'
@@ -748,8 +750,18 @@ createNewRepo: Create New repository
 importGitRepo: Import Repository
 importRepo:
   title: Import Repository
-  url: Repository URL
-  urlPlaceholder: Enter the Repository URL
+  url: Host URL
+  org: Organization
+  workspace: Workspace
+  project: Project
+  group: Group
+  repo: Repository
+  urlPlaceholder: Enter the Host URL
+  repoPlaceholder: Enter the Repository name
+  orgPlaceholder: Enter the Organization name
+  workspacePlaceholder: Enter the Workspace name
+  projectPlaceholder: Enter the Project name
+  groupPlaceholder: Enter the Group name
   reqAuth: Requires Authorization
   userPlaceholder: Enter Username
   passwordPlaceholder: Enter Password
@@ -764,7 +776,7 @@ importSpace:
   title: Import Project
   createASpace: Create a project
   authorization: Authorization
-  content: Import a GitLab Group or a GitHub Org to a new Project in Gitness. Entities at the top level will be imported to the project.
+  content: Import a GitLab Group, GitHub Org or Bitbucket Project to a new Project in Gitness. Entities at the top level will be imported to the project.
   next: Next step
   details: Details of target to import
   organizationName: Organization Name
@@ -826,6 +838,7 @@ generateHelptext: Let Gitness build your Pipeline for you.
 enterAddress: Enter Address
 enterGitlabPlaceholder: https://gitlab.com/
 enterGithubPlaceholder: https://api.github.com/
+enterBitbucketPlaceholder: https://bitbucket.org/
 changeRepoVis: Change repository visibility
 changeRepoVisContent: Are you sure you want to make this repository {repoVis}? {repoText}
 repoVisibility: Repository Visibility

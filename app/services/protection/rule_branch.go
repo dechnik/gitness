@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
@@ -34,6 +35,11 @@ type Branch struct {
 	Lifecycle DefLifecycle `json:"lifecycle"`
 }
 
+type Review struct {
+	ReviewSHA string
+	Decision  enum.PullReqReviewDecision
+}
+
 var _ Definition = (*Branch)(nil) // ensures that the Branch type implements Definition interface.
 
 //nolint:gocognit // well aware of this
@@ -45,14 +51,8 @@ func (v *Branch) CanMerge(_ context.Context, in CanMergeInput) (CanMergeOutput, 
 
 	// bypass
 
-	if v.Bypass.SpaceOwners && in.Membership != nil && in.Membership.Role == enum.MembershipRoleSpaceOwner {
+	if v.isBypassed(in.Actor, in.IsSpaceOwner) {
 		return out, nil, nil
-	}
-
-	for _, bypassUserID := range v.Bypass.UserIDs {
-		if in.Actor.ID == bypassUserID {
-			return out, nil, nil
-		}
 	}
 
 	// pullreq.approvals
@@ -75,7 +75,40 @@ func (v *Branch) CanMerge(_ context.Context, in CanMergeInput) (CanMergeOutput, 
 			len(approvedBy), v.PullReq.Approvals.RequireMinimumCount)
 	}
 
-	// TODO: implement v.PullReq.Approvals.RequireCodeOwners
+	//nolint:nestif
+	if v.PullReq.Approvals.RequireCodeOwners {
+		for _, entry := range in.CodeOwners.EvaluationEntries {
+			reviewDecision, approvers := getCodeOwnerApprovalStatus(entry.OwnerEvaluations)
+
+			if reviewDecision == enum.PullReqReviewDecisionPending {
+				violations.Addf("pullreq.approvals.require_code_owners",
+					"Code owners approval pending for %s", entry.Pattern)
+				continue
+			}
+
+			if reviewDecision == enum.PullReqReviewDecisionChangeReq {
+				violations.Addf("pullreq.approvals.require_code_owners",
+					"Code owners requested changes for %s", entry.Pattern)
+				continue
+			}
+			// pull req approved. check other settings
+			if !v.PullReq.Approvals.RequireLatestCommit {
+				continue
+			}
+			// check for latest commit approved or not
+			latestSHAApproved := false
+			for _, approver := range approvers {
+				if approver.ReviewSHA == in.PullReq.SourceSHA {
+					latestSHAApproved = true
+					break
+				}
+			}
+			if !latestSHAApproved {
+				violations.Addf("pullreq.approvals.require_code_owners",
+					"Code owners approval pending on latest commit for %s", entry.Pattern)
+			}
+		}
+	}
 
 	// pullreq.comments
 
@@ -107,12 +140,47 @@ func (v *Branch) CanMerge(_ context.Context, in CanMergeInput) (CanMergeOutput, 
 
 	if len(v.PullReq.Merge.StrategiesAllowed) > 0 { // Note: Empty allowed strategies list means all are allowed
 		if !slices.Contains(v.PullReq.Merge.StrategiesAllowed, in.Method) {
-			violations.Add("pullreq.merge.strategies_allowed",
-				"The requested merge strategy is not allowed.")
+			violations.Addf("pullreq.merge.strategies_allowed",
+				"The requested merge strategy %q is not allowed. Allowed strategies are %v.",
+				in.Method, v.PullReq.Merge.StrategiesAllowed)
 		}
 	}
 
 	return out, []types.RuleViolations{violations}, nil
+}
+
+func (v *Branch) CanModifyRef(_ context.Context, in CanModifyRefInput) ([]types.RuleViolations, error) {
+	var violations types.RuleViolations
+
+	if v.isBypassed(in.Actor, in.IsSpaceOwner) || in.RefType != RefTypeBranch || len(in.RefNames) == 0 {
+		return nil, nil
+	}
+
+	switch in.RefAction {
+	case RefActionCreate:
+		if v.Lifecycle.CreateForbidden {
+			violations.Addf("lifecycle.create",
+				"Creation of branch %q is not allowed.", in.RefNames[0])
+		}
+	case RefActionDelete:
+		if v.Lifecycle.DeleteForbidden {
+			violations.Addf("lifecycle.delete",
+				"Delete of branch %q is not allowed.", in.RefNames[0])
+		}
+	case RefActionUpdate:
+		if v.Lifecycle.UpdateForbidden {
+			violations.Addf("lifecycle.update",
+				"Push to branch %q is not allowed. Please use pull requests.", in.RefNames[0])
+		}
+	}
+
+	return []types.RuleViolations{violations}, nil
+}
+
+func (v *Branch) isBypassed(actor *types.Principal, isSpaceOwner bool) bool {
+	return actor.Admin ||
+		v.Bypass.SpaceOwners && isSpaceOwner ||
+		slices.Contains(v.Bypass.UserIDs, actor.ID)
 }
 
 func (v *Branch) Sanitize() error {
@@ -200,9 +268,18 @@ func (v DefMerge) Validate() error {
 	return nil
 }
 
+type DefPush struct {
+	Block bool `json:"block,omitempty"`
+}
+
+func (v DefPush) Validate() error {
+	return nil
+}
+
 type DefLifecycle struct {
 	CreateForbidden bool `json:"create_forbidden,omitempty"`
 	DeleteForbidden bool `json:"delete_forbidden,omitempty"`
+	UpdateForbidden bool `json:"update_forbidden,omitempty"`
 }
 
 func (v DefLifecycle) Validate() error {
@@ -234,4 +311,22 @@ func (v DefPullReq) Validate() error {
 	}
 
 	return nil
+}
+
+func getCodeOwnerApprovalStatus(
+	ownerStatus []codeowners.OwnerEvaluation,
+) (enum.PullReqReviewDecision, []codeowners.OwnerEvaluation) {
+	approvers := make([]codeowners.OwnerEvaluation, 0)
+	for _, o := range ownerStatus {
+		if o.ReviewDecision == enum.PullReqReviewDecisionChangeReq {
+			return enum.PullReqReviewDecisionChangeReq, nil
+		}
+		if o.ReviewDecision == enum.PullReqReviewDecisionApproved {
+			approvers = append(approvers, o)
+		}
+	}
+	if len(approvers) > 0 {
+		return enum.PullReqReviewDecisionApproved, approvers
+	}
+	return enum.PullReqReviewDecisionPending, nil
 }

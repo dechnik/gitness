@@ -16,7 +16,6 @@ package protection
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/harness/gitness/types"
@@ -34,13 +33,11 @@ func (s ruleSet) CanMerge(ctx context.Context, in CanMergeInput) (CanMergeOutput
 	var violations []types.RuleViolations
 
 	for _, r := range s.rules {
-		bp := Pattern{}
-
-		if err := json.Unmarshal(r.Pattern, &bp); err != nil {
-			return out, nil, fmt.Errorf("failed to parse branch pattern: %w", err)
+		matches, err := matchesName(r.Pattern, in.TargetRepo.DefaultBranch, in.PullReq.TargetBranch)
+		if err != nil {
+			return out, nil, err
 		}
-
-		if !bp.Matches(in.PullReq.TargetBranch, in.TargetRepo.DefaultBranch) {
+		if !matches {
 			continue
 		}
 
@@ -60,6 +57,38 @@ func (s ruleSet) CanMerge(ctx context.Context, in CanMergeInput) (CanMergeOutput
 	}
 
 	return out, violations, nil
+}
+
+func (s ruleSet) CanModifyRef(ctx context.Context, in CanModifyRefInput) ([]types.RuleViolations, error) {
+	var violations []types.RuleViolations
+
+	for _, r := range s.rules {
+		matched, err := matchedNames(r.Pattern, in.Repo.DefaultBranch, in.RefNames...)
+		if err != nil {
+			return nil, err
+		}
+		if len(matched) == 0 {
+			continue
+		}
+
+		protection, err := s.manager.FromJSON(r.Type, r.Definition, false)
+		if err != nil {
+			return nil,
+				fmt.Errorf("failed to parse protection definition ID=%d Type=%s: %w", r.ID, r.Type, err)
+		}
+
+		ruleIn := in
+		ruleIn.RefNames = matched
+
+		rVs, err := protection.CanModifyRef(ctx, ruleIn)
+		if err != nil {
+			return nil, err
+		}
+
+		violations = append(violations, backFillRule(rVs, r.RuleInfo)...)
+	}
+
+	return violations, nil
 }
 
 func backFillRule(vs []types.RuleViolations, rule types.RuleInfo) []types.RuleViolations {
