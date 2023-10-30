@@ -29,8 +29,10 @@ import (
 
 	"github.com/drone/go-scm/scm"
 	"github.com/drone/go-scm/scm/driver/bitbucket"
+	"github.com/drone/go-scm/scm/driver/gitea"
 	"github.com/drone/go-scm/scm/driver/github"
 	"github.com/drone/go-scm/scm/driver/gitlab"
+	"github.com/drone/go-scm/scm/driver/gogs"
 	"github.com/drone/go-scm/scm/driver/stash"
 	"github.com/drone/go-scm/scm/transport"
 	"github.com/drone/go-scm/scm/transport/oauth2"
@@ -43,6 +45,8 @@ const (
 	ProviderTypeGitLab    ProviderType = "gitlab"
 	ProviderTypeBitbucket ProviderType = "bitbucket"
 	ProviderTypeStash     ProviderType = "stash"
+	ProviderTypeGitea     ProviderType = "gitea"
+	ProviderTypeGogs      ProviderType = "gogs"
 )
 
 func (p ProviderType) Enum() []any {
@@ -51,6 +55,8 @@ func (p ProviderType) Enum() []any {
 		ProviderTypeGitLab,
 		ProviderTypeBitbucket,
 		ProviderTypeStash,
+		ProviderTypeGitea,
+		ProviderTypeGogs,
 	}
 }
 
@@ -106,6 +112,26 @@ func oauthTransport(token string) (http.RoundTripper, error) {
 	}
 	return &oauth2.Transport{
 		Source: oauth2.StaticTokenSource(&scm.Token{Token: token}),
+	}, nil
+}
+
+func gogsTransport(token string) (http.RoundTripper, error) {
+	if token == "" {
+		return nil, errors.New("no token provided")
+	}
+	return &oauth2.Transport{
+		Scheme: oauth2.SchemeToken,
+		Source: oauth2.StaticTokenSource(&scm.Token{Token: token}),
+	}, nil
+}
+
+func authHeaderTransport(token string) (http.RoundTripper, error) {
+	if token == "" {
+		return nil, errors.New("no token provided")
+	}
+	return &transport.Authorization{
+		Scheme:      "token",
+		Credentials: token,
 	}, nil
 }
 
@@ -173,6 +199,26 @@ func getScmClientWithTransport(provider Provider) (*scm.Client, error) { //nolin
 			c = stash.NewDefault()
 		}
 		transport, transportErr = oauthTransport(provider.Password)
+
+	case ProviderTypeGitea:
+		if provider.Host == "" {
+			return nil, errors.New("scm provider Host missing")
+		}
+		c, err = gitea.New(provider.Host)
+		if err != nil {
+			return nil, fmt.Errorf("scm provider Host invalid: %w", err)
+		}
+		transport, transportErr = authHeaderTransport(provider.Password)
+
+	case ProviderTypeGogs:
+		if provider.Host == "" {
+			return nil, errors.New("scm provider Host missing")
+		}
+		c, err = gogs.New(provider.Host)
+		if err != nil {
+			return nil, fmt.Errorf("scm provider Host invalid: %w", err)
+		}
+		transport, transportErr = gogsTransport(provider.Password)
 
 	default:
 		return nil, fmt.Errorf("unsupported scm provider: %s", provider)

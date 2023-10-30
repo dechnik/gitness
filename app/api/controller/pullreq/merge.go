@@ -16,6 +16,7 @@ package pullreq
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -147,7 +148,7 @@ func (c *Controller) Merge(
 	if codeowners.IsTooLargeError(err) {
 		return nil, nil, usererror.UnprocessableEntityf(err.Error())
 	}
-	if err != nil {
+	if err != nil && !errors.Is(err, codeowners.ErrNotFound) {
 		return nil, nil, fmt.Errorf("failed to find codeOwners for PR: %w", err)
 	}
 
@@ -156,7 +157,7 @@ func (c *Controller) Merge(
 		return nil, nil, fmt.Errorf("failed to get code owners with approval: %w", err)
 	}
 
-	ruleOut, violations, err := protectionRules.CanMerge(ctx, protection.CanMergeInput{
+	ruleOut, violations, err := protectionRules.MergeVerify(ctx, protection.MergeVerifyInput{
 		Actor:        &session.Principal,
 		IsSpaceOwner: isSpaceOwner,
 		TargetRepo:   targetRepo,

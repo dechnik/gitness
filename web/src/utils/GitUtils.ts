@@ -101,6 +101,11 @@ export enum GitContentType {
   SYMLINK = 'symlink',
   SUBMODULE = 'submodule'
 }
+export enum SettingsTab {
+  webhooks = 'webhook',
+  general = '/',
+  branchProtection = 'rules'
+}
 
 export enum GitBranchType {
   ACTIVE = 'active',
@@ -118,6 +123,32 @@ export enum PrincipalUserType {
   USER = 'user',
   SERVICE = 'service'
 }
+
+export enum SettingTypeMode {
+  EDIT = 'edit',
+  NEW = 'new'
+}
+
+export enum BranchTargetType {
+  INCLUDE = 'include',
+  EXCLUDE = 'exclude'
+}
+
+export interface BranchTargetOption {
+  type: BranchTargetType
+  title: string
+}
+
+export const branchTargetOptions: BranchTargetOption[] = [
+  {
+    type: BranchTargetType.INCLUDE,
+    title: 'Include'
+  },
+  {
+    type: BranchTargetType.EXCLUDE,
+    title: 'Exclude'
+  }
+]
 
 export enum GitCommitAction {
   DELETE = 'DELETE',
@@ -138,8 +169,9 @@ export enum GitProviders {
   GITLAB = 'GitLab',
   GITLAB_SELF_HOSTED = 'GitLab Self-Hosted',
   BITBUCKET = 'Bitbucket',
-  BITBUCKET_SERVER = 'Bitbucket Server'
-  // GITEA = 'Gitea' - not added on back end yet
+  BITBUCKET_SERVER = 'Bitbucket Server',
+  GITEA = 'Gitea',
+  GOGS = 'Gogs'
 }
 
 export const PullRequestFilterOption = {
@@ -275,19 +307,6 @@ export const decodeGitContent = (content = '') => {
     }
   }
   return ''
-}
-
-export const parseUrl = (url: string) => {
-  const pattern = /^(https?:\/\/[^/]+)\/([^/]+\/[^/]+)/
-  const match = url.match(pattern)
-
-  if (match) {
-    const fullRepo = match[2]
-    const repoName = match[2].split('/')[1].replace('.git', '')
-    return { fullRepo, repoName }
-  } else {
-    return null
-  }
 }
 
 // Check if gitRef is a git commit hash (https://github.com/diegohaz/is-git-rev, MIT © Diego Haz)
