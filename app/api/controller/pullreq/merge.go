@@ -37,13 +37,44 @@ import (
 )
 
 type MergeInput struct {
-	Method    enum.MergeMethod `json:"method"`
-	SourceSHA string           `json:"source_sha"`
+	Method      enum.MergeMethod `json:"method"`
+	SourceSHA   string           `json:"source_sha"`
+	BypassRules bool             `json:"bypass_rules"`
+	DryRun      bool             `json:"dry_run"`
 }
 
-// Merge merges the pull request.
+func (in *MergeInput) sanitize() error {
+	if in.Method == "" && !in.DryRun {
+		return usererror.BadRequest("merge method must be provided if dry run is false")
+	}
+
+	if in.SourceSHA == "" {
+		return usererror.BadRequest("source SHA must be provided")
+	}
+
+	if in.Method != "" {
+		method, ok := in.Method.Sanitize()
+		if !ok {
+			return usererror.BadRequestf("unsupported merge method: %s", in.Method)
+		}
+
+		in.Method = method
+	}
+
+	return nil
+}
+
+// Merge merges a pull request.
 //
-//nolint:gocognit
+// It supports dry running by providing the DryRun=true. Dry running can be used to find any rule violations that
+// might block the merging. Dry running typically should be used with BypassRules=true.
+//
+// MergeMethod doesn't need to be provided for dry running. If no MergeMethod has been provided the function will
+// return allowed merge methods. Rules can limit allowed merge methods.
+//
+// If the pull request has been successfully merged the function will return the SHA of the merge commit.
+//
+//nolint:gocognit,gocyclo,cyclop
 func (c *Controller) Merge(
 	ctx context.Context,
 	session *auth.Session,
@@ -51,12 +82,9 @@ func (c *Controller) Merge(
 	pullreqNum int64,
 	in *MergeInput,
 ) (*types.MergeResponse, *types.MergeViolations, error) {
-	method, ok := in.Method.Sanitize()
-	if !ok {
-		return nil, nil, usererror.BadRequest(
-			fmt.Sprintf("wrong merge method type: %s", in.Method))
+	if err := in.sanitize(); err != nil {
+		return nil, nil, err
 	}
-	in.Method = method
 
 	targetRepo, err := c.getRepoCheckAccess(ctx, session, repoRef, enum.PermissionRepoPush)
 	if err != nil {
@@ -92,12 +120,10 @@ func (c *Controller) Merge(
 		return nil, nil, usererror.BadRequest("Pull request must be open")
 	}
 
-	/*
-		if pr.SourceSHA != in.SourceSHA {
-			return nil, nil,
-				usererror.BadRequest("A newer commit is available. Only the latest commit can be merged.")
-		}
-	*/
+	if pr.SourceSHA != in.SourceSHA {
+		return nil, nil,
+			usererror.BadRequest("A newer commit is available. Only the latest commit can be merged.")
+	}
 
 	if pr.IsDraft {
 		return nil, nil, usererror.BadRequest(
@@ -129,9 +155,9 @@ func (c *Controller) Merge(
 		}
 	}
 
-	isSpaceOwner, err := apiauth.IsSpaceAdmin(ctx, c.authorizer, session, targetRepo)
+	isRepoOwner, err := apiauth.IsRepoOwner(ctx, c.authorizer, session, targetRepo)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to determine if the user is space admin: %w", err)
+		return nil, nil, fmt.Errorf("failed to determine if user is repo owner: %w", err)
 	}
 
 	checkResults, err := c.checkStore.ListResults(ctx, targetRepo.ID, pr.SourceSHA)
@@ -144,22 +170,16 @@ func (c *Controller) Merge(
 		return nil, nil, fmt.Errorf("failed to fetch protection rules for the repository: %w", err)
 	}
 
-	ownersForPR, err := c.codeOwners.GetApplicableCodeOwnersForPR(ctx, sourceRepo, pr)
-	if codeowners.IsTooLargeError(err) {
-		return nil, nil, usererror.UnprocessableEntityf(err.Error())
-	}
+	codeOwnerWithApproval, err := c.codeOwners.Evaluate(ctx, sourceRepo, pr, reviewers)
+	// check for error and ignore if it is codeowners file not found else throw error
 	if err != nil && !errors.Is(err, codeowners.ErrNotFound) {
-		return nil, nil, fmt.Errorf("failed to find codeOwners for PR: %w", err)
-	}
-
-	codeOwnerWithApproval, err := c.codeOwners.Evaluate(ctx, ownersForPR, reviewers)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get code owners with approval: %w", err)
+		return nil, nil, fmt.Errorf("CODEOWNERS evaluation failed: %w", err)
 	}
 
 	ruleOut, violations, err := protectionRules.MergeVerify(ctx, protection.MergeVerifyInput{
 		Actor:        &session.Principal,
-		IsSpaceOwner: isSpaceOwner,
+		AllowBypass:  in.BypassRules,
+		IsRepoOwner:  isRepoOwner,
 		TargetRepo:   targetRepo,
 		SourceRepo:   sourceRepo,
 		PullReq:      pr,
@@ -171,6 +191,40 @@ func (c *Controller) Merge(
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to verify protection rules: %w", err)
 	}
+
+	if in.DryRun {
+		// With in.DryRun=true this function never returns types.MergeViolations
+		out := &types.MergeResponse{
+			DryRun:         true,
+			BranchDeleted:  ruleOut.DeleteSourceBranch,
+			AllowedMethods: ruleOut.AllowedMethods,
+			ConflictFiles:  pr.MergeConflicts,
+			RuleViolations: violations,
+		}
+
+		// TODO: This is a temporary solution. The changes needed for the proper implementation:
+		// 1) GitRPC: Change the merge method to return SHAs (source/target/merge base) even in case of conflicts.
+		// 2) Event handler: Update target and merge base SHA in the event handler even in case of merge conflicts.
+		// 3) Here: Update the pull request target and merge base SHA in the DB if merge check status is unchecked.
+		// 4) Remove the recheck API.
+		if pr.MergeCheckStatus == enum.MergeCheckStatusUnchecked {
+			_, err = c.gitRPCClient.Merge(ctx, &gitrpc.MergeParams{
+				WriteParams:     targetWriteParams,
+				BaseBranch:      pr.TargetBranch,
+				HeadRepoUID:     sourceRepo.GitUID,
+				HeadBranch:      pr.SourceBranch,
+				HeadExpectedSHA: in.SourceSHA,
+			})
+			if gitrpc.ErrorStatus(err) == gitrpc.StatusNotMergeable {
+				out.ConflictFiles = gitrpc.AsConflictFilesError(err)
+			} else if err != nil {
+				return nil, nil, fmt.Errorf("merge check execution failed: %w", err)
+			}
+		}
+
+		return out, nil, nil
+	}
+
 	if protection.IsCritical(violations) {
 		return nil, &types.MergeViolations{RuleViolations: violations}, nil
 	}
@@ -203,20 +257,10 @@ func (c *Controller) Merge(
 	})
 	if err != nil {
 		if gitrpc.ErrorStatus(err) == gitrpc.StatusNotMergeable {
-			return &types.MergeResponse{
-				SHA:            "",
-				BranchDeleted:  false,
+			return nil, &types.MergeViolations{
 				ConflictFiles:  gitrpc.AsConflictFilesError(err),
 				RuleViolations: violations,
-			}, nil, nil
-			// TODO: This should be the response in case of a merge conflict.
-			// TODO: Remove the ConflictFiles field from types.MergeResponse.
-			/*
-				return nil, &types.MergeViolations{
-					ConflictFiles:  gitrpc.AsConflictFilesError(err),
-					RuleViolations: violations,
-				}, nil
-			*/
+			}, nil
 		}
 		return nil, nil, fmt.Errorf("merge check execution failed: %w", err)
 	}

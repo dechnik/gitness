@@ -67,12 +67,21 @@ var (
 	// ErrDefaultBranchCantBeDeleted is returned if the user tries to delete the default branch of a repository.
 	ErrDefaultBranchCantBeDeleted = New(http.StatusBadRequest, "The default branch of a repository can't be deleted")
 
+	// ErrPullReqRefsCantBeModified is returned if a user tries to tinker with a pull request git ref.
+	ErrPullReqRefsCantBeModified = New(http.StatusBadRequest, "The pull request git refs can't be modified")
+
 	// ErrRequestTooLarge is returned if the request it too large.
 	ErrRequestTooLarge = New(http.StatusRequestEntityTooLarge, "The request is too large")
 
 	// ErrWebhookNotRetriggerable is returned if the webhook can't be retriggered.
 	ErrWebhookNotRetriggerable = New(http.StatusMethodNotAllowed,
 		"The webhook execution is incomplete and can't be retriggered")
+
+	// ErrCodeOwnersNotFound is returned when codeowners file is not found.
+	ErrCodeOwnersNotFound = New(http.StatusNotFound, "CODEOWNERS file not found")
+
+	// ErrResponseNotFlushable is returned if the response writer doesn't implement http.Flusher.
+	ErrResponseNotFlushable = New(http.StatusInternalServerError, "Response not streamable")
 )
 
 // Error represents a json-encoded API error.

@@ -33,8 +33,8 @@ type (
 
 	MergeVerifyInput struct {
 		Actor        *types.Principal
-		IsSpaceOwner bool
-		Membership   *types.Membership
+		AllowBypass  bool
+		IsRepoOwner  bool
 		TargetRepo   *types.Repository
 		SourceRepo   *types.Repository
 		PullReq      *types.PullReq
@@ -46,6 +46,7 @@ type (
 
 	MergeVerifyOutput struct {
 		DeleteSourceBranch bool
+		AllowedMethods     []enum.MergeMethod
 	}
 )
 
@@ -155,15 +156,30 @@ func (v *DefPullReq) MergeVerify(
 
 	// pullreq.merge
 
-	if len(v.Merge.StrategiesAllowed) > 0 { // Note: Empty allowed strategies list means all are allowed
-		if !slices.Contains(v.Merge.StrategiesAllowed, in.Method) {
-			violations.Addf(codePullReqMergeStrategiesAllowed,
-				"The requested merge strategy %q is not allowed. Allowed strategies are %v.",
-				in.Method, v.Merge.StrategiesAllowed)
+	if in.Method == "" {
+		out.AllowedMethods = enum.MergeMethods
+	}
+
+	// Note: Empty allowed strategies list means all are allowed
+	if len(v.Merge.StrategiesAllowed) > 0 {
+		if in.Method != "" {
+			// if the Method is provided report violations if any
+			if !slices.Contains(v.Merge.StrategiesAllowed, in.Method) {
+				violations.Addf(codePullReqMergeStrategiesAllowed,
+					"The requested merge strategy %q is not allowed. Allowed strategies are %v.",
+					in.Method, v.Merge.StrategiesAllowed)
+			}
+		} else {
+			// if the Method isn't provided return allowed strategies
+			out.AllowedMethods = v.Merge.StrategiesAllowed
 		}
 	}
 
-	return out, []types.RuleViolations{violations}, nil
+	if len(violations.Violations) > 0 {
+		return out, []types.RuleViolations{violations}, nil
+	}
+
+	return out, nil, nil
 }
 
 type DefApprovals struct {
@@ -175,6 +191,10 @@ type DefApprovals struct {
 func (v *DefApprovals) Sanitize() error {
 	if v.RequireMinimumCount < 0 {
 		return errors.New("minimum count must be zero or a positive integer")
+	}
+
+	if v.RequireLatestCommit && v.RequireMinimumCount == 0 && !v.RequireCodeOwners {
+		return errors.New("require latest commit can only be used with require code owners or require minimum count")
 	}
 
 	return nil
@@ -218,6 +238,8 @@ func (v *DefMerge) Sanitize() error {
 
 		m[strategy] = struct{}{}
 	}
+
+	slices.Sort(v.StrategiesAllowed)
 
 	return nil
 }

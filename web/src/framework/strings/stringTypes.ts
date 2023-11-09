@@ -28,8 +28,10 @@ export interface StringsMap {
   and: string
   applyChanges: string
   approve: string
+  approved: string
   ascending: string
   assignPeople: string
+  attachText: string
   basedOn: string
   blame: string
   blameCommitLine: string
@@ -44,7 +46,7 @@ export interface StringsMap {
   branchDoesNotHaveFile: string
   branchName: string
   branchNotFound: string
-  'branchProtection.allProjectOwners': string
+  'branchProtection.allRepoOwners': string
   'branchProtection.autoDeleteText': string
   'branchProtection.autoDeleteTitle': string
   'branchProtection.blockBranchCreation': string
@@ -67,10 +69,14 @@ export interface StringsMap {
   'branchProtection.enableTheRule': string
   'branchProtection.limitMergeStrategies': string
   'branchProtection.limitMergeStrategiesText': string
+  'branchProtection.mergeCheckboxAlert': string
+  'branchProtection.mergePrAlertText': string
+  'branchProtection.mergePrAlertTitle': string
   'branchProtection.minNumber': string
   'branchProtection.minNumberPlaceholder': string
   'branchProtection.namePlaceholder': string
-  'branchProtection.newBranchProtectionRule': string
+  'branchProtection.newRule': string
+  'branchProtection.prFailedText': string
   'branchProtection.protectionSelectAll': string
   'branchProtection.reqCommentResolutionText': string
   'branchProtection.reqCommentResolutionTitle': string
@@ -86,6 +92,7 @@ export interface StringsMap {
   'branchProtection.ruleDeleted': string
   'branchProtection.ruleEmpty': string
   'branchProtection.ruleUpdated': string
+  'branchProtection.saveRule': string
   'branchProtection.statusCheck': string
   'branchProtection.targetBranches': string
   'branchProtection.targetPlaceholder': string
@@ -118,6 +125,10 @@ export interface StringsMap {
   cloneText: string
   close: string
   closed: string
+  'codeOwner.approvalCompleted': string
+  'codeOwner.changesRequested': string
+  'codeOwner.title': string
+  'codeOwner.waitToApprove': string
   codeSearch: string
   codeSearchModal: string
   comment: string
@@ -303,15 +314,21 @@ export interface StringsMap {
   'homepage.selectSpaceContent': string
   'homepage.selectSpaceTitle': string
   'homepage.welcomeText': string
+  'imageUpload.readyToUpload': string
+  'imageUpload.text': string
+  'imageUpload.title': string
+  'imageUpload.upload': string
   importGitRepo: string
   importProgress: string
+  'importRepo.appPassword': string
+  'importRepo.appPasswordPlaceholder': string
   'importRepo.failedToImportRepo': string
   'importRepo.group': string
   'importRepo.groupPlaceholder': string
   'importRepo.org': string
   'importRepo.orgPlaceholder': string
   'importRepo.passToken': string
-  'importRepo.passwordPlaceholder': string
+  'importRepo.passTokenPlaceholder': string
   'importRepo.passwordReq': string
   'importRepo.project': string
   'importRepo.projectPlaceholder': string
@@ -800,6 +817,7 @@ export interface StringsMap {
   viewRaw: string
   viewRepo: string
   viewed: string
+  waitForApproval: string
   webhook: string
   webhookAllEventsSelected: string
   webhookBranchCreated: string

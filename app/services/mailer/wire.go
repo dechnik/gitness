@@ -12,37 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package io
+package mailer
 
-import "io"
+import (
+	"github.com/harness/gitness/types"
 
-type Flusher interface {
-	Flush()
-}
+	"github.com/google/wire"
+)
 
-type writeWithFlusher struct {
-	writer  io.Writer
-	flusher Flusher
-}
+var WireSet = wire.NewSet(
+	ProvideMailService,
+)
 
-// nolint
-type WriterFlusher interface {
-	io.Writer
-	Flusher
-}
-
-func NewWriterFlusher(writer io.Writer, flusher Flusher) WriterFlusher {
-	return &writeWithFlusher{
-		writer:  writer,
-		flusher: flusher,
-	}
-}
-
-func (w *writeWithFlusher) Write(p []byte) (int, error) {
-	n, err := w.writer.Write(p)
-	return n, err
-}
-
-func (w *writeWithFlusher) Flush() {
-	w.flusher.Flush()
+func ProvideMailService(config *types.Config) *Service {
+	mailSvc := NewMailClient(
+		config.SMTP.Host,
+		config.SMTP.Port,
+		config.SMTP.Username,
+		config.SMTP.FromMail,
+		config.SMTP.Password,
+		config.SMTP.Insecure, // #nosec G402 (insecure skipVerify configuration)
+	)
+	return mailSvc
 }

@@ -19,6 +19,10 @@ import (
 	"fmt"
 
 	"github.com/harness/gitness/types"
+	"github.com/harness/gitness/types/enum"
+
+	"golang.org/x/exp/constraints"
+	"golang.org/x/exp/slices"
 )
 
 type ruleSet struct {
@@ -34,6 +38,10 @@ func (s ruleSet) MergeVerify(
 ) (MergeVerifyOutput, []types.RuleViolations, error) {
 	var out MergeVerifyOutput
 	var violations []types.RuleViolations
+
+	if in.Method == "" {
+		out.AllowedMethods = slices.Clone(enum.MergeMethods)
+	}
 
 	for _, r := range s.rules {
 		matches, err := matchesName(r.Pattern, in.TargetRepo.DefaultBranch, in.PullReq.TargetBranch)
@@ -57,6 +65,7 @@ func (s ruleSet) MergeVerify(
 
 		violations = append(violations, backFillRule(rVs, r.RuleInfo)...)
 		out.DeleteSourceBranch = out.DeleteSourceBranch || rOut.DeleteSourceBranch
+		out.AllowedMethods = intersectSorted(out.AllowedMethods, rOut.AllowedMethods)
 	}
 
 	return out, violations, nil
@@ -95,16 +104,32 @@ func (s ruleSet) RefChangeVerify(ctx context.Context, in RefChangeVerifyInput) (
 }
 
 func backFillRule(vs []types.RuleViolations, rule types.RuleInfo) []types.RuleViolations {
-	violations := make([]types.RuleViolations, 0, len(vs))
-
 	for i := range vs {
-		if len(vs[i].Violations) == 0 {
+		vs[i].Rule = rule
+	}
+	return vs
+}
+
+// intersectSorted removed all elements of the "sliceA" that are not also in the "sliceB" slice.
+// Assumes both slices are sorted.
+func intersectSorted[T constraints.Ordered](sliceA, sliceB []T) []T {
+	var idxA, idxB int
+	for idxA < len(sliceA) && idxB < len(sliceB) {
+		a, b := sliceA[idxA], sliceB[idxB]
+
+		if a == b {
+			idxA++
 			continue
 		}
 
-		vs[i].Rule = rule
-		violations = append(violations, vs[i])
-	}
+		if a < b {
+			sliceA = append(sliceA[:idxA], sliceA[idxA+1:]...)
+			continue
+		}
 
-	return violations
+		idxB++
+	}
+	sliceA = sliceA[:idxA]
+
+	return sliceA
 }

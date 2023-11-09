@@ -764,8 +764,10 @@ importRepo:
   groupPlaceholder: Enter the Group name
   reqAuth: Requires Authorization
   userPlaceholder: Enter Username
-  passwordPlaceholder: Enter Password
-  passToken: Password/Token
+  passToken: Token
+  passTokenPlaceholder: Enter Token
+  appPassword: App Password
+  appPasswordPlaceholder: Enter App Password
   failedToImportRepo: Failed to import repository. Please try again.
   validation: Invalid GitHub or GitLab URL
   required: Repository URL is required
@@ -842,25 +844,31 @@ enterBitbucketPlaceholder: https://bitbucket.org/
 changeRepoVis: Change repository visibility
 changeRepoVisContent: Are you sure you want to make this repository {repoVis}? {repoText}
 repoVisibility: Repository Visibility
+attachText: Attach files by dragging & dropping, selecting or pasting them.
 key: Key
 setting: Setting
 mergeCommit: Merge commit
 squashMerge: Squash and merge
 rebaseMerge: Rebase and merge
 Enable: Enable
+imageUpload:
+  title: Upload attachment
+  readyToUpload: Ready for upload
+  upload: Upload
+  text: Drag and drop a file here or click browse to select a file.
 branchProtection:
   namePlaceholder: Enter the rule name here
   descPlaceholder: Enter the description here
-  title: Protection Rules
-  edit: Edit Branch Protection
-  create: Create Branch Protection
+  title: Rules
+  edit: Edit Rule
+  create: Create Rule
   targetBranches: Target Patterns
   targetPlaceholder: Enter the target patterns
   defaultBranch: Default branch
   bypassList: Bypass List
-  newBranchProtectionRule: New Branch Protection Rule
-  allProjectOwners: All project owners
-  protectionSelectAll: 'Protections: Select all that apply'
+  newRule: New branch rule
+  allRepoOwners: Allow users with edit permission on the repository to bypass
+  protectionSelectAll: 'Rules: Select all that apply'
   requireMinReviewersTitle: Require a minimum number of reviewers
   requireMinReviewersContent: Require approval on pull requests from a minimum number of reviewers
   minNumber: Minimum number
@@ -883,6 +891,7 @@ branchProtection:
   blockBranchDeletion: Block branch deletion
   blockBranchDeletionText: Only allow users with bypass permission to delete matching branches
   editRule: Edit Rule
+  saveRule: Save Rule
   deleteRule: Delete Rule
   ruleDeleted: Rule Deleted
   ruleEmpty: There are no rules in your repo. Click the button below to create a rule.
@@ -895,3 +904,14 @@ branchProtection:
   ruleCreated: Rule Created
   blockMergeWithoutPr: Block merge without pull request
   blockMergeWithoutPrText: Do not allow directly merging to the branch without a pull request
+  prFailedText: 'This branch has no conflicts with the base branch. {{ruleCount}} branch rules failed'
+  mergePrAlertTitle: Merge pull request alert
+  mergePrAlertText: 'Merge cannot be completed. {{ruleCount}} branch rules failed: '
+  mergeCheckboxAlert: Bypass branch rules and merge
+codeOwner:
+  title: Code Owner
+  changesRequested: '{count} {count|1:change,changes} requested'
+  waitToApprove: '{count} pending {count|1:approval,approvals} '
+  approvalCompleted: '{count}/{total} approvals completed'
+approved: Approved
+waitForApproval: Wait for Approval

@@ -62,9 +62,19 @@ func (c *Controller) PreReceive(
 		return output, nil
 	}
 
-	// TODO: Remove the dummy session and use the real session, once that has been done and the session has a value.
+	if c.blockPullReqRefUpdate(refUpdates) {
+		output.Error = ptr.String(usererror.ErrPullReqRefsCantBeModified.Error())
+		return output, nil
+	}
+
+	// TODO: use store.PrincipalInfoCache once we abstracted principals.
+	principal, err := c.principalStore.Find(ctx, principalID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to find inner principal with id %d: %w", principalID, err)
+	}
+
 	dummySession := &auth.Session{
-		Principal: types.Principal{ID: principalID, Admin: false}, // TODO: In the dummySession "Admin" is always false
+		Principal: *principal,
 		Metadata:  nil,
 	}
 
@@ -76,6 +86,16 @@ func (c *Controller) PreReceive(
 	return output, nil
 }
 
+func (c *Controller) blockPullReqRefUpdate(refUpdates changedRefs) bool {
+	fn := func(ref string) bool {
+		return strings.HasPrefix(ref, gitReferenceNamePullReq)
+	}
+
+	return slices.ContainsFunc(refUpdates.other.created, fn) ||
+		slices.ContainsFunc(refUpdates.other.deleted, fn) ||
+		slices.ContainsFunc(refUpdates.other.updated, fn)
+}
+
 func (c *Controller) checkProtectionRules(
 	ctx context.Context,
 	session *auth.Session,
@@ -83,9 +103,9 @@ func (c *Controller) checkProtectionRules(
 	refUpdates changedRefs,
 	output *githook.Output,
 ) error {
-	isSpaceOwner, err := apiauth.IsSpaceAdmin(ctx, c.authorizer, session, repo)
+	isRepoOwner, err := apiauth.IsRepoOwner(ctx, c.authorizer, session, repo)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to determine if user is repo owner: %w", err)
 	}
 
 	protectionRules, err := c.protectionManager.ForRepository(ctx, repo.ID)
@@ -102,12 +122,13 @@ func (c *Controller) checkProtectionRules(
 		}
 
 		violations, err := protectionRules.RefChangeVerify(ctx, protection.RefChangeVerifyInput{
-			Actor:        &session.Principal,
-			IsSpaceOwner: isSpaceOwner,
-			Repo:         repo,
-			RefAction:    refAction,
-			RefType:      refType,
-			RefNames:     names,
+			Actor:       &session.Principal,
+			AllowBypass: true,
+			IsRepoOwner: isRepoOwner,
+			Repo:        repo,
+			RefAction:   refAction,
+			RefType:     refType,
+			RefNames:    names,
 		})
 		if err != nil {
 			errCheckAction = fmt.Errorf("failed to verify protection rules for git push: %w", err)

@@ -26,12 +26,13 @@ type (
 	}
 
 	RefChangeVerifyInput struct {
-		Actor        *types.Principal
-		IsSpaceOwner bool
-		Repo         *types.Repository
-		RefAction    RefAction
-		RefType      RefType
-		RefNames     []string
+		Actor       *types.Principal
+		AllowBypass bool
+		IsRepoOwner bool
+		Repo        *types.Repository
+		RefAction   RefAction
+		RefType     RefType
+		RefNames    []string
 	}
 
 	RefType int
@@ -90,7 +91,11 @@ func (v *DefLifecycle) RefChangeVerify(_ context.Context, in RefChangeVerifyInpu
 		}
 	}
 
-	return []types.RuleViolations{violations}, nil
+	if len(violations.Violations) > 0 {
+		return []types.RuleViolations{violations}, nil
+	}
+
+	return nil, nil
 }
 
 func (*DefLifecycle) Sanitize() error {
