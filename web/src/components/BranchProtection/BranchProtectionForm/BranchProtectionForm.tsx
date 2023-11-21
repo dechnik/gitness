@@ -15,6 +15,7 @@
  */
 import React, { useMemo, useState } from 'react'
 import cx from 'classnames'
+import * as yup from 'yup'
 import {
   Button,
   ButtonVariation,
@@ -36,7 +37,7 @@ import { useHistory } from 'react-router-dom'
 import { useGet, useMutate } from 'restful-react'
 import { BranchTargetType, SettingsTab, branchTargetOptions } from 'utils/GitUtils'
 import { useStrings } from 'framework/strings'
-import { getErrorMessage, rulesFormInitialPayload } from 'utils/Utils'
+import { REGEX_VALID_REPO_NAME, getErrorMessage, permissionProps, rulesFormInitialPayload } from 'utils/Utils'
 import type {
   TypesRepository,
   OpenapiRule,
@@ -47,6 +48,7 @@ import type {
 } from 'services/code'
 import { useGetRepositoryMetadata } from 'hooks/useGetRepositoryMetadata'
 import { useAppContext } from 'AppContext'
+import { useGetSpaceParam } from 'hooks/useGetSpaceParam'
 import ProtectionRulesForm from './ProtectionRulesForm/ProtectionRulesForm'
 import Include from '../../../icons/Include.svg'
 import Exclude from '../../../icons/Exclude.svg'
@@ -59,7 +61,7 @@ const BranchProtectionForm = (props: {
   repoMetadata?: TypesRepository | undefined
   refetchRules: () => void
 }) => {
-  const { routes, routingId } = useAppContext()
+  const { routes, routingId, standalone, hooks } = useAppContext()
 
   const { ruleId } = useGetRepositoryMetadata()
   const { showError, showSuccess } = useToaster()
@@ -181,17 +183,31 @@ const BranchProtectionForm = (props: {
         autoDelete: (rule.definition as ProtectionBranch)?.pullreq?.merge?.delete_branch,
         blockBranchCreation: (rule.definition as ProtectionBranch)?.lifecycle?.create_forbidden,
         blockBranchDeletion: (rule.definition as ProtectionBranch)?.lifecycle?.delete_forbidden,
-        blockMergeWithoutPr: (rule.definition as ProtectionBranch)?.lifecycle?.update_forbidden
+        requirePr: (rule.definition as ProtectionBranch)?.lifecycle?.update_forbidden
       }
     }
 
     return rulesFormInitialPayload // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editMode, rule, ruleUid])
+  }, [editMode, rule, ruleUid, users])
+  const space = useGetSpaceParam()
+  const permPushResult = hooks?.usePermissionTranslate?.(
+    {
+      resource: {
+        resourceType: 'CODE_REPOSITORY'
+      },
+      permissions: ['code_repo_edit']
+    },
+    [space]
+  )
   return (
     <Formik
       formName="branchProtectionRulesNewEditForm"
       initialValues={initialValues}
       enableReinitialize
+      validationSchema={yup.object().shape({
+        name: yup.string().trim().required().matches(REGEX_VALID_REPO_NAME, getString('validation.nameLogic')),
+        minReviewers: yup.number().typeError(getString('enterANumber'))
+      })}
       onSubmit={async formData => {
         const stratArray = [
           formData.squashMerge && 'squash',
@@ -239,9 +255,12 @@ const BranchProtectionForm = (props: {
             lifecycle: {
               create_forbidden: formData.blockBranchCreation,
               delete_forbidden: formData.blockBranchDeletion,
-              update_forbidden: formData.blockMergeWithoutPr
+              update_forbidden: formData.requirePr
             }
           }
+        }
+        if (!formData.limitMergeStrategies) {
+          delete (payload?.definition as ProtectionBranch)?.pullreq?.merge?.strategies_allowed
         }
         if (!formData.requireMinReviewers) {
           delete (payload?.definition as ProtectionBranch)?.pullreq?.approvals?.require_minimum_count
@@ -288,6 +307,7 @@ const BranchProtectionForm = (props: {
                   tooltipProps={{
                     dataTooltipId: 'branchProtectionName'
                   }}
+                  disabled={editMode}
                   className={cx(css.widthContainer, css.label)}
                 />
                 <FormInput.Text
@@ -371,6 +391,9 @@ const BranchProtectionForm = (props: {
                     </SplitButton>
                   </Container>
                 </Layout.Horizontal>
+                <Text className={css.hintText} margin={{ bottom: 'medium' }}>
+                  {getString('branchProtection.targetPatternHint')}
+                </Text>
                 <Layout.Horizontal spacing={'small'} className={css.targetBox}>
                   {targetList.map((target, idx) => {
                     return (
@@ -389,6 +412,7 @@ const BranchProtectionForm = (props: {
                             )
                             formik.setFieldValue('targetList', filteredData)
                           }}
+                          className={css.codeClose}
                         />
                       </Container>
                     )
@@ -404,6 +428,8 @@ const BranchProtectionForm = (props: {
                   items={filteredUserOptions}
                   onQueryChange={setSearchTerm}
                   className={css.widthContainer}
+                  value={{ label: '', value: '' }}
+                  placeholder={getString('selectUsers')}
                   onChange={item => {
                     const id = item.value?.toString().split(' ')[0]
                     const displayName = item.label
@@ -428,10 +454,14 @@ const BranchProtectionForm = (props: {
               <Container padding={{ top: 'large' }}>
                 <Layout.Horizontal spacing="small">
                   <Button
-                    type="submit"
+                    onClick={() => {
+                      formik.submitForm()
+                    }}
+                    type="button"
                     text={editMode ? getString('branchProtection.saveRule') : getString('branchProtection.createRule')}
                     variation={ButtonVariation.PRIMARY}
                     disabled={false}
+                    {...permissionProps(permPushResult, standalone)}
                   />
                   <Button
                     text={getString('cancel')}

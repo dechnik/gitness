@@ -31,7 +31,7 @@ import (
 	"github.com/harness/gitness/app/store"
 	gitnessurl "github.com/harness/gitness/app/url"
 	"github.com/harness/gitness/encrypt"
-	"github.com/harness/gitness/gitrpc"
+	"github.com/harness/gitness/git"
 	gitness_store "github.com/harness/gitness/store"
 	"github.com/harness/gitness/store/database/dbtx"
 	"github.com/harness/gitness/types"
@@ -53,7 +53,7 @@ var (
 type Repository struct {
 	defaultBranch string
 	urlProvider   gitnessurl.Provider
-	git           gitrpc.Interface
+	git           git.Interface
 	tx            dbtx.Transactor
 	repoStore     store.RepoStore
 	pipelineStore store.PipelineStore
@@ -245,7 +245,16 @@ func (r *Repository) Handle(ctx context.Context, data string, _ job.ProgressRepo
 	log.Info().Msgf("successfully created git repository with git_uid '%s'", gitUID)
 
 	err = func() error {
-		repo.GitUID = gitUID
+		repo, err = r.repoStore.UpdateOptLock(ctx, repo, func(repo *types.Repository) error {
+			if !repo.Importing {
+				return errors.New("repository has already finished importing")
+			}
+			repo.GitUID = gitUID
+			return nil
+		})
+		if err != nil {
+			return fmt.Errorf("failed to update repository prior to the import: %w", err)
+		}
 
 		log.Info().Msg("sync repository")
 
@@ -292,7 +301,9 @@ func (r *Repository) Handle(ctx context.Context, data string, _ job.ProgressRepo
 	if err != nil {
 		log.Error().Err(err).Msg("failed repository import - cleanup git repository")
 
-		if errDel := r.deleteGitRepository(ctx, &systemPrincipal, repo); errDel != nil {
+		repo.GitUID = gitUID // make sure to delete the correct directory
+
+		if errDel := r.deleteGitRepository(context.Background(), &systemPrincipal, repo); errDel != nil {
 			log.Warn().Err(errDel).
 				Msg("failed to delete git repository after failed import")
 		}
@@ -352,20 +363,20 @@ func (r *Repository) createGitRepository(ctx context.Context,
 		return "", err
 	}
 
-	resp, err := r.git.CreateRepository(ctx, &gitrpc.CreateRepositoryParams{
-		Actor: gitrpc.Identity{
+	resp, err := r.git.CreateRepository(ctx, &git.CreateRepositoryParams{
+		Actor: git.Identity{
 			Name:  principal.DisplayName,
 			Email: principal.Email,
 		},
 		EnvVars:       envVars,
 		DefaultBranch: r.defaultBranch,
 		Files:         nil,
-		Author: &gitrpc.Identity{
+		Author: &git.Identity{
 			Name:  principal.DisplayName,
 			Email: principal.Email,
 		},
 		AuthorDate: &now,
-		Committer: &gitrpc.Identity{
+		Committer: &git.Identity{
 			Name:  principal.DisplayName,
 			Email: principal.Email,
 		},
@@ -388,7 +399,7 @@ func (r *Repository) syncGitRepository(ctx context.Context,
 		return "", err
 	}
 
-	syncOut, err := r.git.SyncRepository(ctx, &gitrpc.SyncRepositoryParams{
+	syncOut, err := r.git.SyncRepository(ctx, &git.SyncRepositoryParams{
 		WriteParams:       writeParams,
 		Source:            sourceCloneURL,
 		CreateIfNotExists: false,
@@ -410,7 +421,7 @@ func (r *Repository) deleteGitRepository(ctx context.Context,
 		return err
 	}
 
-	err = r.git.DeleteRepository(ctx, &gitrpc.DeleteRepositoryParams{
+	err = r.git.DeleteRepository(ctx, &git.DeleteRepositoryParams{
 		WriteParams: writeParams,
 	})
 	if err != nil {
@@ -427,8 +438,8 @@ func (r *Repository) matchFiles(ctx context.Context,
 	pattern string,
 	maxSize int,
 ) ([]pipelineFile, error) {
-	resp, err := r.git.MatchFiles(ctx, &gitrpc.MatchFilesParams{
-		ReadParams: gitrpc.ReadParams{RepoUID: repo.GitUID},
+	resp, err := r.git.MatchFiles(ctx, &git.MatchFilesParams{
+		ReadParams: git.ReadParams{RepoUID: repo.GitUID},
 		Ref:        ref,
 		DirPath:    dirPath,
 		Pattern:    pattern,
@@ -454,14 +465,14 @@ func (r *Repository) matchFiles(ctx context.Context,
 func (r *Repository) createRPCWriteParams(ctx context.Context,
 	principal *types.Principal,
 	repo *types.Repository,
-) (gitrpc.WriteParams, error) {
+) (git.WriteParams, error) {
 	envVars, err := r.createEnvVars(ctx, principal, repo.ID)
 	if err != nil {
-		return gitrpc.WriteParams{}, err
+		return git.WriteParams{}, err
 	}
 
-	return gitrpc.WriteParams{
-		Actor: gitrpc.Identity{
+	return git.WriteParams{
+		Actor: git.Identity{
 			Name:  principal.DisplayName,
 			Email: principal.Email,
 		},

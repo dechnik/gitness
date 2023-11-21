@@ -15,6 +15,7 @@
  */
 
 .main {
+  //   --layout-spacing: var(--layout-medium) !important;
   border-radius: 4px;
   border: 1px solid var(--border-color);
   background: var(--white);
@@ -158,4 +159,8 @@
 
 .waitingContainer {
   justify-content: unset !important;
+}
+
+.codeOwner {
+  --layout-spacing: 1px !important;
 }

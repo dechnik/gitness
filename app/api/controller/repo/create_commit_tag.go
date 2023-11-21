@@ -22,7 +22,7 @@ import (
 	"github.com/harness/gitness/app/api/controller"
 	"github.com/harness/gitness/app/auth"
 	"github.com/harness/gitness/app/services/protection"
-	"github.com/harness/gitness/gitrpc"
+	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 )
@@ -37,6 +37,8 @@ type CreateCommitTagInput struct {
 	// Message is the optional message the tag will be created with - if the message is empty
 	// the tag will be lightweight, otherwise it'll be annotated.
 	Message string `json:"message"`
+
+	BypassRules bool `json:"bypass_rules"`
 }
 
 // CreateCommitTag creates a new tag for a repo.
@@ -62,7 +64,7 @@ func (c *Controller) CreateCommitTag(ctx context.Context,
 
 	violations, err := rules.RefChangeVerify(ctx, protection.RefChangeVerifyInput{
 		Actor:       &session.Principal,
-		AllowBypass: true,
+		AllowBypass: in.BypassRules,
 		IsRepoOwner: isRepoOwner,
 		Repo:        repo,
 		RefAction:   protection.RefActionCreate,
@@ -82,12 +84,12 @@ func (c *Controller) CreateCommitTag(ctx context.Context,
 	}
 
 	now := time.Now()
-	rpcOut, err := c.gitRPCClient.CreateCommitTag(ctx, &gitrpc.CreateCommitTagParams{
+	rpcOut, err := c.git.CreateCommitTag(ctx, &git.CreateCommitTagParams{
 		WriteParams: writeParams,
 		Name:        in.Name,
 		Target:      in.Target,
 		Message:     in.Message,
-		Tagger:      rpcIdentityFromPrincipal(session.Principal),
+		Tagger:      identityFromPrincipal(session.Principal),
 		TaggerDate:  &now,
 	})
 	if err != nil {

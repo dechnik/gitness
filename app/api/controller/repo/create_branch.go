@@ -21,7 +21,7 @@ import (
 	"github.com/harness/gitness/app/api/controller"
 	"github.com/harness/gitness/app/auth"
 	"github.com/harness/gitness/app/services/protection"
-	"github.com/harness/gitness/gitrpc"
+	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 )
@@ -33,6 +33,8 @@ type CreateBranchInput struct {
 	// Target is the commit (or points to the commit) the new branch will be pointing to.
 	// If no target is provided, the branch points to the same commit as the default branch of the repo.
 	Target string `json:"target"`
+
+	BypassRules bool `json:"bypass_rules"`
 }
 
 // CreateBranch creates a new branch for a repo.
@@ -58,7 +60,7 @@ func (c *Controller) CreateBranch(ctx context.Context,
 
 	violations, err := rules.RefChangeVerify(ctx, protection.RefChangeVerifyInput{
 		Actor:       &session.Principal,
-		AllowBypass: true,
+		AllowBypass: in.BypassRules,
 		IsRepoOwner: isRepoOwner,
 		Repo:        repo,
 		RefAction:   protection.RefActionCreate,
@@ -77,7 +79,7 @@ func (c *Controller) CreateBranch(ctx context.Context,
 		return nil, nil, fmt.Errorf("failed to create RPC write params: %w", err)
 	}
 
-	rpcOut, err := c.gitRPCClient.CreateBranch(ctx, &gitrpc.CreateBranchParams{
+	rpcOut, err := c.git.CreateBranch(ctx, &git.CreateBranchParams{
 		WriteParams: writeParams,
 		BranchName:  in.Name,
 		Target:      in.Target,

@@ -17,14 +17,13 @@ package pullreq
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	apiauth "github.com/harness/gitness/app/api/auth"
 	"github.com/harness/gitness/app/api/usererror"
 	"github.com/harness/gitness/app/auth"
 	pullreqevents "github.com/harness/gitness/app/events/pullreq"
-	"github.com/harness/gitness/gitrpc"
+	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
@@ -34,7 +33,6 @@ import (
 type StateInput struct {
 	State   enum.PullReqState `json:"state"`
 	IsDraft bool              `json:"is_draft"`
-	Message string            `json:"message"`
 }
 
 func (in *StateInput) Check() error {
@@ -45,13 +43,10 @@ func (in *StateInput) Check() error {
 	}
 
 	in.State = state
-	in.Message = strings.TrimSpace(in.Message)
 
 	if in.State == enum.PullReqStateMerged {
 		return usererror.BadRequest("Pull requests can't be merged with this API")
 	}
-
-	// TODO: Need to check the length of the message string
 
 	return nil
 }
@@ -125,10 +120,8 @@ func (c *Controller) State(ctx context.Context,
 			return nil, err
 		}
 
-		var mergeBaseResult gitrpc.MergeBaseOutput
-
-		mergeBaseResult, err = c.gitRPCClient.MergeBase(ctx, gitrpc.MergeBaseParams{
-			ReadParams: gitrpc.ReadParams{RepoUID: sourceRepo.GitUID},
+		mergeBaseResult, err := c.git.MergeBase(ctx, git.MergeBaseParams{
+			ReadParams: git.ReadParams{RepoUID: sourceRepo.GitUID},
 			Ref1:       pr.SourceBranch,
 			Ref2:       pr.TargetBranch,
 		})
@@ -171,7 +164,6 @@ func (c *Controller) State(ctx context.Context,
 		New:      pr.State,
 		OldDraft: oldDraft,
 		NewDraft: pr.IsDraft,
-		Message:  in.Message,
 	}
 	if _, errAct := c.activityStore.CreateWithPayload(ctx, pr, session.Principal.ID, payload); errAct != nil {
 		// non-critical error

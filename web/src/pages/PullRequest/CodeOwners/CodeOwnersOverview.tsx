@@ -44,6 +44,7 @@ import css from './CodeOwnersOverview.module.scss'
 interface ChecksOverviewProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullRequestMetadata'> {
   prChecksDecisionResult: PRChecksDecisionResult
   codeOwners?: TypesCodeOwnerEvaluation
+  standalone: boolean
 }
 
 enum CodeOwnerReqDecision {
@@ -56,7 +57,8 @@ export function CodeOwnersOverview({
   codeOwners,
   repoMetadata,
   pullRequestMetadata,
-  prChecksDecisionResult
+  prChecksDecisionResult,
+  standalone
 }: ChecksOverviewProps) {
   const { getString } = useStrings()
   const [isExpanded, toggleExpanded] = useToggle(false)
@@ -91,7 +93,7 @@ export function CodeOwnersOverview({
     return {
       borderColor: 'green800',
       message: stringSubstitute(getString('codeOwner.approvalCompleted'), {
-        count: approvalEntriesArr.length,
+        count: approvalEntriesArr.length || '0',
         total: codeOwners?.evaluation_entries?.length
       }) as string,
       overallStatus: ExecutionState.SUCCESS
@@ -100,8 +102,8 @@ export function CodeOwnersOverview({
   const { borderColor, message, overallStatus } = checkEntries(changeReqEntries, waitingEntries, approvalEntries)
   return codeOwners?.evaluation_entries?.length ? (
     <Container
-      className={css.main}
-      margin={{ bottom: pullRequestMetadata.description ? undefined : 'large' }}
+      className={cx(css.main, { [css.codeOwner]: !standalone })}
+      margin={{ top: 'medium', bottom: pullRequestMetadata.description ? undefined : 'large' }}
       style={{ '--border-color': Utils.getRealCSSColor(borderColor) } as React.CSSProperties}>
       <Match expr={isExpanded}>
         <Truthy>
@@ -269,7 +271,7 @@ const CodeOwnerSection: React.FC<CodeOwnerSectionsProps> = ({ data }) => {
             return (
               <Text flex className={cx(css.approvalText, css.waitingContainer)} color={Color.ORANGE_700}>
                 <Container className={css.circle}></Container>
-                {getString('waitForApproval')}
+                {getString('pending')}
               </Text>
             )
           }

@@ -21,7 +21,7 @@ import (
 	"github.com/harness/gitness/app/api/controller"
 	"github.com/harness/gitness/app/auth"
 	"github.com/harness/gitness/app/services/protection"
-	"github.com/harness/gitness/gitrpc"
+	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 )
@@ -31,6 +31,7 @@ func (c *Controller) DeleteTag(ctx context.Context,
 	session *auth.Session,
 	repoRef,
 	tagName string,
+	bypassRules bool,
 ) ([]types.RuleViolations, error) {
 	repo, err := c.getRepoCheckAccess(ctx, session, repoRef, enum.PermissionRepoPush, false)
 	if err != nil {
@@ -44,7 +45,7 @@ func (c *Controller) DeleteTag(ctx context.Context,
 
 	violations, err := rules.RefChangeVerify(ctx, protection.RefChangeVerifyInput{
 		Actor:       &session.Principal,
-		AllowBypass: true,
+		AllowBypass: bypassRules,
 		IsRepoOwner: isRepoOwner,
 		Repo:        repo,
 		RefAction:   protection.RefActionDelete,
@@ -63,7 +64,7 @@ func (c *Controller) DeleteTag(ctx context.Context,
 		return nil, fmt.Errorf("failed to create RPC write params: %w", err)
 	}
 
-	err = c.gitRPCClient.DeleteTag(ctx, &gitrpc.DeleteTagParams{
+	err = c.git.DeleteTag(ctx, &git.DeleteTagParams{
 		Name:        tagName,
 		WriteParams: writeParams,
 	})

@@ -51,6 +51,8 @@ export interface EditorProps {
   darkTheme?: boolean
   repoMetadata: TypesRepository | undefined
   inGitBlame?: boolean
+  standalone: boolean
+  routingId?: string
 }
 
 export const Editor = React.memo(function CodeMirrorReactEditor({
@@ -69,13 +71,14 @@ export const Editor = React.memo(function CodeMirrorReactEditor({
   onViewUpdate,
   darkTheme,
   repoMetadata,
-  inGitBlame = false
+  inGitBlame = false,
+  standalone,
+  routingId
 }: EditorProps) {
   const { showError } = useToaster()
   const { getString } = useStrings()
   const view = useRef<EditorView>()
   const ref = useRef<HTMLDivElement>()
-  // const { repoMetadata } = useGetRepositoryMetadata()
 
   const languageConfig = useMemo(() => new Compartment(), [])
   const [markdownContent, setMarkdownContent] = useState('')
@@ -99,7 +102,7 @@ export const Editor = React.memo(function CodeMirrorReactEditor({
 
   const updateContentWithoutStateChange = () => {
     setUploading(true)
-    if (view.current && markdownContent) {
+    if (view.current && markdownContent && !inGitBlame) {
       const currentContent = view.current.state.doc.toString()
       const markdownInsert = `![image](${markdownContent})`
       // Create a transaction to update the document content
@@ -199,7 +202,9 @@ export const Editor = React.memo(function CodeMirrorReactEditor({
     }
   }, [filename, forMarkdown, view, languageConfig, markdownLanguageSupport])
   const handleUploadCallback = (file: File) => {
-    handleUpload(file, setMarkdownContent, repoMetadata, showError)
+    if (!inGitBlame) {
+      handleUpload(file, setMarkdownContent, repoMetadata, showError, standalone, routingId)
+    }
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const handleDropForUpload = async (event: any) => {

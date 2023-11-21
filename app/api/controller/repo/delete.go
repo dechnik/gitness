@@ -21,7 +21,9 @@ import (
 	apiauth "github.com/harness/gitness/app/api/auth"
 	"github.com/harness/gitness/app/api/controller"
 	"github.com/harness/gitness/app/auth"
-	"github.com/harness/gitness/gitrpc"
+	repoevents "github.com/harness/gitness/app/events/repo"
+	"github.com/harness/gitness/errors"
+	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
@@ -40,6 +42,11 @@ func (c *Controller) Delete(ctx context.Context, session *auth.Session, repoRef 
 		return err
 	}
 
+	log.Ctx(ctx).Info().
+		Int64("repo.id", repo.ID).
+		Str("repo.path", repo.Path).
+		Msgf("deleting repository")
+
 	if repo.Importing {
 		err = c.importer.Cancel(ctx, repo)
 		if err != nil {
@@ -49,13 +56,11 @@ func (c *Controller) Delete(ctx context.Context, session *auth.Session, repoRef 
 		return c.DeleteNoAuth(ctx, session, repo)
 	}
 
-	log.Ctx(ctx).Info().Msgf("Delete request received for repo %s , id: %d", repo.Path, repo.ID)
-
 	return c.DeleteNoAuth(ctx, session, repo)
 }
 
 func (c *Controller) DeleteNoAuth(ctx context.Context, session *auth.Session, repo *types.Repository) error {
-	if err := c.deleteGitRPCRepository(ctx, session, repo); err != nil {
+	if err := c.deleteGitRepository(ctx, session, repo); err != nil {
 		return fmt.Errorf("failed to delete git repository: %w", err)
 	}
 
@@ -63,29 +68,42 @@ func (c *Controller) DeleteNoAuth(ctx context.Context, session *auth.Session, re
 		return fmt.Errorf("failed to delete repo from db: %w", err)
 	}
 
+	c.eventReporter.Deleted(
+		ctx,
+		&repoevents.DeletedPayload{
+			RepoID: repo.ID,
+		},
+	)
 	return nil
 }
 
-func (c *Controller) deleteGitRPCRepository(
+func (c *Controller) deleteGitRepository(
 	ctx context.Context,
 	session *auth.Session,
 	repo *types.Repository,
 ) error {
+	if repo.Importing {
+		log.Ctx(ctx).Debug().Str("repo.git_uid", repo.GitUID).
+			Msg("skipping removal of git directory for repository being imported")
+		return nil
+	}
+
 	writeParams, err := controller.CreateRPCInternalWriteParams(ctx, c.urlProvider, session, repo)
 	if err != nil {
 		return fmt.Errorf("failed to create RPC write params: %w", err)
 	}
 
-	err = c.gitRPCClient.DeleteRepository(ctx, &gitrpc.DeleteRepositoryParams{
+	err = c.git.DeleteRepository(ctx, &git.DeleteRepositoryParams{
 		WriteParams: writeParams,
 	})
 
 	// deletion should not fail if dir does not exist in repos dir
-	if gitrpc.ErrorStatus(err) == gitrpc.StatusNotFound {
-		log.Ctx(ctx).Warn().Msgf("gitrpc repo %s does not exist", repo.GitUID)
+	if errors.IsNotFound(err) {
+		log.Ctx(ctx).Warn().Str("repo.git_uid", repo.GitUID).
+			Msg("git repository directory does not exist")
 	} else if err != nil {
 		// deletion has failed before removing(rename) the repo dir
-		return fmt.Errorf("gitrpc failed to delete repo %s: %w", repo.GitUID, err)
+		return fmt.Errorf("failed to delete git repository directory %s: %w", repo.GitUID, err)
 	}
 	return nil
 }

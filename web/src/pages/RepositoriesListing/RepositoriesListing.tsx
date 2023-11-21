@@ -176,8 +176,11 @@ export default function RepositoriesListing() {
       onSubmit={repoInfo => {
         if (repoInfo.importing) {
           refetch()
+        } else if (repoInfo.importing_repos) {
+          history.push(routes.toCODERepositories({ space: space as string }))
+          refetch()
         } else {
-          history.push(routes.toCODERepository({ repoPath: repoInfo.path as string }))
+          history.push(routes.toCODERepository({ repoPath: (repoInfo as TypesRepository).path as string }))
         }
       }}
     />

@@ -35,6 +35,7 @@ import (
 	"github.com/harness/gitness/app/bootstrap"
 	gitevents "github.com/harness/gitness/app/events/git"
 	pullreqevents "github.com/harness/gitness/app/events/pullreq"
+	repoevents "github.com/harness/gitness/app/events/repo"
 	"github.com/harness/gitness/app/pipeline/canceler"
 	"github.com/harness/gitness/app/pipeline/commit"
 	"github.com/harness/gitness/app/pipeline/file"
@@ -67,9 +68,9 @@ import (
 	cliserver "github.com/harness/gitness/cli/server"
 	"github.com/harness/gitness/encrypt"
 	"github.com/harness/gitness/events"
-	"github.com/harness/gitness/gitrpc"
-	gitrpcserver "github.com/harness/gitness/gitrpc/server"
-	gitrpccron "github.com/harness/gitness/gitrpc/server/cron"
+	"github.com/harness/gitness/git"
+	"github.com/harness/gitness/git/adapter"
+	"github.com/harness/gitness/git/storage"
 	"github.com/harness/gitness/livelog"
 	"github.com/harness/gitness/lock"
 	"github.com/harness/gitness/pubsub"
@@ -110,10 +111,10 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		authz.WireSet,
 		gitevents.WireSet,
 		pullreqevents.WireSet,
-		cliserver.ProvideGitRPCServerConfig,
-		gitrpcserver.WireSet,
-		cliserver.ProvideGitRPCClientConfig,
-		gitrpc.WireSet,
+		repoevents.WireSet,
+		storage.WireSet,
+		adapter.WireSet,
+		git.WireSet,
 		store.WireSet,
 		check.WireSet,
 		encrypt.WireSet,
@@ -133,7 +134,6 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		codecomments.WireSet,
 		job.WireSet,
 		protection.WireSet,
-		gitrpccron.WireSet,
 		checkcontroller.WireSet,
 		execution.WireSet,
 		pipeline.WireSet,

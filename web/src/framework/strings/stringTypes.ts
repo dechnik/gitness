@@ -53,8 +53,6 @@ export interface StringsMap {
   'branchProtection.blockBranchCreationText': string
   'branchProtection.blockBranchDeletion': string
   'branchProtection.blockBranchDeletionText': string
-  'branchProtection.blockMergeWithoutPr': string
-  'branchProtection.blockMergeWithoutPrText': string
   'branchProtection.bypassList': string
   'branchProtection.create': string
   'branchProtection.createRule': string
@@ -88,6 +86,8 @@ export interface StringsMap {
   'branchProtection.reqStatusChecksTitle': string
   'branchProtection.requireMinReviewersContent': string
   'branchProtection.requireMinReviewersTitle': string
+  'branchProtection.requirePr': string
+  'branchProtection.requirePrText': string
   'branchProtection.ruleCreated': string
   'branchProtection.ruleDeleted': string
   'branchProtection.ruleEmpty': string
@@ -95,6 +95,7 @@ export interface StringsMap {
   'branchProtection.saveRule': string
   'branchProtection.statusCheck': string
   'branchProtection.targetBranches': string
+  'branchProtection.targetPatternHint': string
   'branchProtection.targetPlaceholder': string
   'branchProtection.title': string
   branchProtectionRules: string
@@ -131,6 +132,7 @@ export interface StringsMap {
   'codeOwner.waitToApprove': string
   codeSearch: string
   codeSearchModal: string
+  comingSoon: string
   comment: string
   commentDeleted: string
   commit: string
@@ -227,6 +229,7 @@ export interface StringsMap {
   enableWebhookContent: string
   enableWebhookTitle: string
   enabled: string
+  enterANumber: string
   enterAddress: string
   enterBitbucketPlaceholder: string
   enterBranchPlaceholder: string
@@ -319,6 +322,7 @@ export interface StringsMap {
   'imageUpload.title': string
   'imageUpload.upload': string
   importGitRepo: string
+  importGitRepos: string
   importProgress: string
   'importRepo.appPassword': string
   'importRepo.appPasswordPlaceholder': string
@@ -345,6 +349,8 @@ export interface StringsMap {
   'importRepo.validation': string
   'importRepo.workspace': string
   'importRepo.workspacePlaceholder': string
+  'importRepos.content': string
+  'importRepos.title': string
   'importSpace.authorization': string
   'importSpace.content': string
   'importSpace.createASpace': string
@@ -703,7 +709,9 @@ export interface StringsMap {
   selectRange: string
   selectSpace: string
   selectSpaceText: string
+  selectStatuses: string
   selectToViewMore: string
+  selectUsers: string
   setAsAdmin: string
   setting: string
   settings: string
@@ -817,7 +825,6 @@ export interface StringsMap {
   viewRaw: string
   viewRepo: string
   viewed: string
-  waitForApproval: string
   webhook: string
   webhookAllEventsSelected: string
   webhookBranchCreated: string

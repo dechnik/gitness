@@ -23,6 +23,29 @@ import (
 	"github.com/harness/gitness/pubsub"
 )
 
+// LastCommitCache holds configuration options for the last commit cache.
+type LastCommitCache struct {
+	// Mode determines where the cache will be. Valid values are "inmemory" (default), "redis" or "none".
+	Mode string `envconfig:"GITNESS_GIT_LAST_COMMIT_CACHE_MODE" default:"inmemory"`
+
+	// Duration defines cache duration of last commit.
+	Duration time.Duration `envconfig:"GITNESS_GIT_LAST_COMMIT_CACHE_DURATION" default:"12h"`
+}
+
+// Git defines the git configuration parameters.
+type Git struct {
+	DefaultBranch string `envconfig:"GITNESS_GIT_DEFAULTBRANCH" default:"main"`
+	// GitRoot specifies the directory containing git related data (e.g. repos, ...)
+	Root string `envconfig:"GITNESS_GIT_ROOT"`
+	// TmpDir (optional) specifies the directory for temporary data (e.g. repo clones, ...)
+	TmpDir string `envconfig:"GITNESS_GIT_TMP_DIR"`
+	// GitHookPath points to the binary used as git server hook.
+	HookPath string `envconfig:"GITNESS_GIT_HOOK_PATH"`
+
+	// LastCommitCache holds configuration options for the last commit cache.
+	LastCommitCache LastCommitCache
+}
+
 // Config stores the system configuration.
 type Config struct {
 	// InstanceID specifis the ID of the gitness instance.
@@ -82,9 +105,7 @@ type Config struct {
 	}
 
 	// Git defines the git configuration parameters
-	Git struct {
-		DefaultBranch string `envconfig:"GITNESS_GIT_DEFAULTBRANCH" default:"main"`
-	}
+	Git Git
 
 	// Encrypter defines the parameters for the encrypter
 	Encrypter struct {
@@ -134,6 +155,11 @@ type Config struct {
 
 		// In case of GCS provider, this is expected to be the path to the service account key file.
 		KeyPath string `envconfig:"GITNESS_BLOBSTORE_KEY_PATH" default:""`
+
+		// Email ID of the google service account that needs to be impersonated
+		TargetPrincipal string `envconfig:"GITNESS_BLOBSTORE_TARGET_PRINCIPAL" default:""`
+
+		ImpersonationLifetime time.Duration `envconfig:"GITNESS_BLOBSTORE_IMPERSONATION_LIFETIME" default:"12h"`
 	}
 
 	// Token defines token configuration parameters.
@@ -225,10 +251,10 @@ type Config struct {
 		// Provider is a name of distributed lock service like redis, memory, file etc...
 		Provider      lock.Provider `envconfig:"GITNESS_LOCK_PROVIDER"          default:"inmemory"`
 		Expiry        time.Duration `envconfig:"GITNESS_LOCK_EXPIRE"            default:"8s"`
-		Tries         int           `envconfig:"GITNESS_LOCK_TRIES"             default:"32"`
+		Tries         int           `envconfig:"GITNESS_LOCK_TRIES"             default:"8"`
 		RetryDelay    time.Duration `envconfig:"GITNESS_LOCK_RETRY_DELAY"       default:"250ms"`
 		DriftFactor   float64       `envconfig:"GITNESS_LOCK_DRIFT_FACTOR"      default:"0.01"`
-		TimeoutFactor float64       `envconfig:"GITNESS_LOCK_TIMEOUT_FACTOR"    default:"0.05"`
+		TimeoutFactor float64       `envconfig:"GITNESS_LOCK_TIMEOUT_FACTOR"    default:"0.25"`
 		// AppNamespace is just service app prefix to avoid conflicts on key definition
 		AppNamespace string `envconfig:"GITNESS_LOCK_APP_NAMESPACE"     default:"gitness"`
 		// DefaultNamespace is when mutex doesn't specify custom namespace for their keys
@@ -283,7 +309,7 @@ type Config struct {
 	}
 
 	CodeOwners struct {
-		FilePath string `envconfig:"GITNESS_CODEOWNERS_FILEPATH" default:".harness/CODEOWNERS"`
+		FilePaths []string `envconfig:"GITNESS_CODEOWNERS_FILEPATH" default:"CODEOWNERS,.harness/CODEOWNERS"`
 	}
 
 	SMTP struct {

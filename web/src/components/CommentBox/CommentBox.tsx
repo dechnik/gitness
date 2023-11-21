@@ -107,6 +107,8 @@ interface CommentBoxProps<T> {
   autoFocusAndPosition?: boolean
   enableReplyPlaceHolder?: boolean
   repoMetadata: TypesRepository | undefined
+  standalone: boolean
+  routingId: string
 }
 
 export const CommentBox = <T = unknown,>({
@@ -128,7 +130,9 @@ export const CommentBox = <T = unknown,>({
   outlets = {},
   autoFocusAndPosition,
   enableReplyPlaceHolder,
-  repoMetadata
+  repoMetadata,
+  standalone,
+  routingId
 }: CommentBoxProps<T>) => {
   const { getString } = useStrings()
   const [comments, setComments] = useState<CommentItem<T>[]>(commentItems)
@@ -244,6 +248,8 @@ export const CommentBox = <T = unknown,>({
             <Falsy>
               <Container className={cx(css.newCommentContainer, { [css.hasThread]: !!comments.length })}>
                 <MarkdownEditorWithPreview
+                  routingId={routingId}
+                  standalone={standalone}
                   repoMetadata={repoMetadata}
                   className={editorClassName}
                   viewRef={viewRef}
@@ -321,7 +327,7 @@ const CommentsThread = <T = unknown,>({
   repoMetadata
 }: CommentsThreadProps<T>) => {
   const { getString } = useStrings()
-  const { standalone } = useAppContext()
+  const { standalone, routingId } = useAppContext()
   const [editIndexes, setEditIndexes] = useState<Record<number, boolean>>({})
   const resetStateAtIndex = useCallback(
     (index: number) => {
@@ -426,6 +432,8 @@ const CommentsThread = <T = unknown,>({
                   <Truthy>
                     <Container className={css.editCommentContainer}>
                       <MarkdownEditorWithPreview
+                        routingId={routingId}
+                        standalone={standalone}
                         repoMetadata={repoMetadata}
                         value={commentItem?.content}
                         onSave={async value => {

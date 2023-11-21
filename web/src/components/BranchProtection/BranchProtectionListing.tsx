@@ -26,7 +26,8 @@ import {
   ButtonVariation,
   Toggle,
   useToaster,
-  FlexExpander
+  FlexExpander,
+  StringSubstitute
 } from '@harnessio/uicore'
 import cx from 'classnames'
 
@@ -38,7 +39,7 @@ import { useHistory } from 'react-router-dom'
 import { useGetRepositoryMetadata } from 'hooks/useGetRepositoryMetadata'
 import { useQueryParams } from 'hooks/useQueryParams'
 import { usePageIndex } from 'hooks/usePageIndex'
-import { getErrorMessage, LIST_FETCHING_LIMIT, type PageBrowserProps } from 'utils/Utils'
+import { getErrorMessage, LIST_FETCHING_LIMIT, permissionProps, type PageBrowserProps } from 'utils/Utils'
 import { SettingTypeMode } from 'utils/GitUtils'
 import { ResourceListingPagination } from 'components/ResourceListingPagination/ResourceListingPagination'
 import { NoResultCard } from 'components/NoResultCard/NoResultCard'
@@ -48,6 +49,7 @@ import { useConfirmAct } from 'hooks/useConfirmAction'
 import { OptionsMenuButton } from 'components/OptionsMenuButton/OptionsMenuButton'
 import type { OpenapiRule, ProtectionPattern } from 'services/code'
 import { useAppContext } from 'AppContext'
+import { useGetSpaceParam } from 'hooks/useGetSpaceParam'
 import Include from '../../icons/Include.svg'
 import Exclude from '../../icons/Exclude.svg'
 import BranchProtectionForm from './BranchProtectionForm/BranchProtectionForm'
@@ -151,7 +153,7 @@ const BranchProtectionListing = (props: { activeTab: string }) => {
             'pullreq.merge.delete_branch': getString('branchProtection.autoDeleteTitle'),
             'lifecycle.create_forbidden': getString('branchProtection.blockBranchCreation'),
             'lifecycle.delete_forbidden': getString('branchProtection.blockBranchDeletion'),
-            'lifecycle.update_forbidden': getString('branchProtection.blockMergeWithoutPr')
+            'lifecycle.update_forbidden': getString('branchProtection.requirePr')
           }
 
           type NonEmptyRule = {
@@ -176,12 +178,24 @@ const BranchProtectionListing = (props: { activeTab: string }) => {
           }
 
           const nonEmptyRules = checkFieldsNotEmpty(row.original.definition as Rule, fieldsToCheck)
+          const { hooks, standalone } = useAppContext()
 
+          const space = useGetSpaceParam()
+
+          const permPushResult = hooks?.usePermissionTranslate?.(
+            {
+              resource: {
+                resourceType: 'CODE_REPOSITORY'
+              },
+              permissions: ['code_repo_edit']
+            },
+            [space]
+          )
           return (
             <Layout.Horizontal spacing="medium" padding={{ left: 'medium' }}>
               <Container onClick={Utils.stopEvent}>
                 <Popover
-                  isOpen={popoverDialogOpen}
+                  isOpen={popoverDialogOpen && !permPushResult}
                   onInteraction={nextOpenState => {
                     setPopoverDialogOpen(nextOpenState)
                   }}
@@ -196,15 +210,19 @@ const BranchProtectionListing = (props: { activeTab: string }) => {
                         <Text
                           padding={{ top: 'medium', bottom: 'medium' }}
                           font={{ variation: FontVariation.BODY2_SEMI }}>
-                          {checked ? getString('disableWebhookContent') : getString('enableWebhookContent')}
-                          <strong>{row.original?.uid}</strong>
+                          <StringSubstitute
+                            str={checked ? getString('disableWebhookContent') : getString('enableWebhookContent')}
+                            vars={{
+                              name: <strong>{row.original?.uid}</strong>
+                            }}
+                          />
                         </Text>
                         <Layout.Horizontal>
                           <Button
                             variation={ButtonVariation.PRIMARY}
                             text={getString('confirm')}
                             onClick={() => {
-                              const data = { enabled: !checked }
+                              const data = { state: checked ? 'disabled' : 'active' }
                               mutate(data)
                                 .then(() => {
                                   showSuccess(getString('branchProtection.ruleUpdated'))
@@ -229,6 +247,7 @@ const BranchProtectionListing = (props: { activeTab: string }) => {
                   position={Position.RIGHT}
                   interactionKind="click">
                   <Toggle
+                    {...permissionProps(permPushResult, standalone)}
                     padding={{ top: 'xsmall' }}
                     key={`${row.original.uid}-toggle`}
                     // className={cx(css.toggle, checked ? css.toggleEnable : css.toggleDisable)}
@@ -251,6 +270,7 @@ const BranchProtectionListing = (props: { activeTab: string }) => {
                     <OptionsMenuButton
                       width="100px"
                       isDark
+                      {...permissionProps(permPushResult, standalone)}
                       items={[
                         {
                           hasIcon: true,
@@ -338,6 +358,19 @@ const BranchProtectionListing = (props: { activeTab: string }) => {
     ], // eslint-disable-next-line react-hooks/exhaustive-deps
     [history, getString, repoMetadata?.path, setPage, showError, showSuccess]
   )
+  const { hooks, standalone } = useAppContext()
+
+  const space = useGetSpaceParam()
+
+  const permPushResult = hooks?.usePermissionTranslate?.(
+    {
+      resource: {
+        resourceType: 'CODE_REPOSITORY'
+      },
+      permissions: ['code_repo_edit']
+    },
+    [space]
+  )
   return (
     <Container>
       {repoMetadata && !newRule && !editRule && (
@@ -398,6 +431,7 @@ const BranchProtectionListing = (props: { activeTab: string }) => {
                 })
               )
             }}
+            permissionProp={permissionProps(permPushResult, standalone)}
           />
         </Container>
       )}
