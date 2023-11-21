@@ -88,7 +88,7 @@ pkgs.buildGoModule {
   pname = "gitness";
   inherit src;
   version = gitnessVersion;
-  vendorSha256 = "sha256-fgAWiWtTiFfeiYEkOYdMwaCfD54nwlScXyRrp3GQJp8=";
+  vendorSha256 = "sha256-HmybMYmj8d3I5sMhOGttjyTAKGdSDIA3igQjycVjsBY=";
 
   nativeBuildInputs = [
     pkgs.makeWrapper
@@ -98,6 +98,7 @@ pkgs.buildGoModule {
     pkgs.protobuf3_21
     protoc-gen-go
     protoc-gen-go-grpc
+    pkgs.git
   ];
 
   buildInputs = [
@@ -108,7 +109,6 @@ pkgs.buildGoModule {
   preBuild = ''
     cp -R ${gitness-ui}/ web/dist/
     wire gen ./cmd/gitness
-    protoc --proto_path=./gitrpc/proto --go_out=./gitrpc/rpc --go_opt=paths=source_relative --go-grpc_out=./gitrpc/rpc --go-grpc_opt=paths=source_relative ./gitrpc/proto/*.proto
   '';
   postInstall = ''
     wrapProgram $out/bin/gitness \
