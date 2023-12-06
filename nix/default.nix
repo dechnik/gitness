@@ -12,7 +12,7 @@ let
     nativeBuildInputs = with pkgs; [ nodejs yarn fixup_yarn_lock ];
     offlineCache = pkgs.fetchYarnDeps {
       yarnLock = "${src}/nix/yarn.lock";
-      sha256 = "sha256-CuyxhtEiUqKAEbutRKtACostA/QXd8LcTDNC+SkusJQ=";
+      sha256 = "sha256-vH4GZEYu02x1q3lbK/ItrEH16vLXE+Z6PS9JUEOBCxI=";
     };
     configurePhase = ''
       runHook preConfigure
@@ -50,7 +50,7 @@ let
       sha256 = "sha256-7Cg7fByLR9jX3OSCqJfLw5PAHDQi/gopkjtkbobnyWM=";
     };
 
-    vendorSha256 = "sha256-yb8l4ooZwqfvenlxDRg95rqiL+hmsn0weS/dPv/oD2Y=";
+    vendorHash = "sha256-yb8l4ooZwqfvenlxDRg95rqiL+hmsn0weS/dPv/oD2Y=";
 
     subPackages = [ "cmd/protoc-gen-go" ];
   };
@@ -66,7 +66,7 @@ let
       sha256 = "sha256-pIHMykwwyu052rqwSV5Js0+JCKCNLrFVN6XQ3xjlEOI=";
     };
 
-    vendorSha256 = "sha256-yxOfgTA5IIczehpWMM1kreMqJYKgRT5HEGbJ3SeQ/Lg=";
+    vendorHash = "sha256-yxOfgTA5IIczehpWMM1kreMqJYKgRT5HEGbJ3SeQ/Lg=";
   };
   dbmate = pkgs.buildGoModule rec {
     pname = "dbmate";
@@ -79,7 +79,7 @@ let
       sha256 = "sha256-eBes5BqoR7K6ntCKjWECwWuoTwAodNtLqcTei5WocLU=";
     };
 
-    vendorSha256 = "sha256-U9VTS0rmLHxweFiIcFyoybHMBihy5ezloDC2iLc4IMc=";
+    vendorHash = "sha256-U9VTS0rmLHxweFiIcFyoybHMBihy5ezloDC2iLc4IMc=";
 
     doCheck = false;
   };
@@ -88,7 +88,7 @@ pkgs.buildGoModule {
   pname = "gitness";
   inherit src;
   version = gitnessVersion;
-  vendorSha256 = "sha256-HmybMYmj8d3I5sMhOGttjyTAKGdSDIA3igQjycVjsBY=";
+  vendorHash = "sha256-HmybMYmj8d3I5sMhOGttjyTAKGdSDIA3igQjycVjsBY=";
 
   nativeBuildInputs = [
     pkgs.makeWrapper
