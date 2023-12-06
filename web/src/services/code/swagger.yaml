@@ -828,7 +828,8 @@ paths:
     get:
       operationId: getBlame
       parameters:
-        - description: The git reference (branch / tag / commitID) that will be used
+        - description:
+            The git reference (branch / tag / commitID) that will be used
             to retrieve the data. If no value is provided the default branch of the
             repository is used.
           in: query
@@ -867,7 +868,7 @@ paths:
             application/json:
               schema:
                 items:
-                  $ref: '#/components/schemas/GitrpcBlamePart'
+                  $ref: '#/components/schemas/GitBlamePart'
                 type: array
           description: OK
         '401':
@@ -900,7 +901,8 @@ paths:
     get:
       operationId: listBranches
       parameters:
-        - description: Indicates whether optional commit information should be included
+        - description:
+            Indicates whether optional commit information should be included
             in the response.
           in: query
           name: include_commit
@@ -1047,6 +1049,13 @@ paths:
     delete:
       operationId: deleteBranch
       parameters:
+        - description: Bypass rule violations if possible.
+          in: query
+          name: bypass_rules
+          required: false
+          schema:
+            default: false
+            type: boolean
         - in: path
           name: repo_ref
           required: true
@@ -1159,7 +1168,8 @@ paths:
             maximum: 100
             minimum: 1
             type: integer
-        - description: The substring which is used to filter the status checks by their
+        - description:
+            The substring which is used to filter the status checks by their
             UID.
           in: query
           name: query
@@ -1277,14 +1287,16 @@ paths:
     get:
       operationId: listStatusCheckRecent
       parameters:
-        - description: The substring which is used to filter the status checks by their
+        - description:
+            The substring which is used to filter the status checks by their
             UID.
           in: query
           name: query
           required: false
           schema:
             type: string
-        - description: The timestamp (in Unix time millis) since the status checks have
+        - description:
+            The timestamp (in Unix time millis) since the status checks have
             been run.
           in: query
           name: since
@@ -1335,7 +1347,8 @@ paths:
     get:
       operationId: codeOwnersValidate
       parameters:
-        - description: The git reference (branch / tag / commitID) that will be used
+        - description:
+            The git reference (branch / tag / commitID) that will be used
             to retrieve the data. If no value is provided the default branch of the
             repository is used.
           in: query
@@ -1388,7 +1401,8 @@ paths:
     get:
       operationId: listCommits
       parameters:
-        - description: The git reference (branch / tag / commitID) that will be used
+        - description:
+            The git reference (branch / tag / commitID) that will be used
             to retrieve the data. If no value is provided the default branch of the
             repository is used.
           in: query
@@ -1397,7 +1411,8 @@ paths:
           schema:
             default: '{Repository Default Branch}'
             type: string
-        - description: The result should only contain commits that occurred after the
+        - description:
+            The result should only contain commits that occurred after the
             provided reference.
           in: query
           name: after
@@ -1691,7 +1706,8 @@ paths:
     get:
       operationId: getContent
       parameters:
-        - description: The git reference (branch / tag / commitID) that will be used
+        - description:
+            The git reference (branch / tag / commitID) that will be used
             to retrieve the data. If no value is provided the default branch of the
             repository is used.
           in: query
@@ -1700,7 +1716,8 @@ paths:
           schema:
             default: '{Repository Default Branch}'
             type: string
-        - description: Indicates whether optional commit information should be included
+        - description:
+            Indicates whether optional commit information should be included
             in the response.
           in: query
           name: include_commit
@@ -1814,7 +1831,7 @@ paths:
             application/json:
               schema:
                 items:
-                  $ref: '#/components/schemas/GitrpcFileDiff'
+                  $ref: '#/components/schemas/GitFileDiff'
                 type: array
             text/plain:
               schema:
@@ -1933,7 +1950,8 @@ paths:
     post:
       operationId: pathDetails
       parameters:
-        - description: The git reference (branch / tag / commitID) that will be used
+        - description:
+            The git reference (branch / tag / commitID) that will be used
             to retrieve the data. If no value is provided the default branch of the
             repository is used.
           in: query
@@ -1989,7 +2007,8 @@ paths:
     get:
       operationId: listPipelines
       parameters:
-        - description: The substring which is used to filter the repositories by their
+        - description:
+            The substring which is used to filter the repositories by their
             path name.
           in: query
           name: query
@@ -2468,8 +2487,8 @@ paths:
           description: Internal Server Error
       tags:
         - pipeline
-  /repos/{repo_ref}/pipelines/{pipeline_uid}/executions/{execution_number}/cancel:
-    post:
+  ? /repos/{repo_ref}/pipelines/{pipeline_uid}/executions/{execution_number}/cancel
+  : post:
       operationId: cancelExecution
       parameters:
         - in: path
@@ -2520,8 +2539,8 @@ paths:
           description: Internal Server Error
       tags:
         - pipeline
-  /repos/{repo_ref}/pipelines/{pipeline_uid}/executions/{execution_number}/logs/{stage_number}/{step_number}:
-    get:
+  ? /repos/{repo_ref}/pipelines/{pipeline_uid}/executions/{execution_number}/logs/{stage_number}/{step_number}
+  : get:
       operationId: viewLogs
       parameters:
         - in: path
@@ -2588,7 +2607,8 @@ paths:
     get:
       operationId: listTriggers
       parameters:
-        - description: The substring which is used to filter the repositories by their
+        - description:
+            The substring which is used to filter the repositories by their
             path name.
           in: query
           name: query
@@ -3173,7 +3193,8 @@ paths:
                 - title-change
               type: string
             type: array
-        - description: The result should contain only entries created at and after this
+        - description:
+            The result should contain only entries created at and after this
             timestamp (unix millis).
           in: query
           name: after
@@ -3181,7 +3202,8 @@ paths:
           schema:
             minimum: 0
             type: integer
-        - description: The result should contain only entries created before this timestamp
+        - description:
+            The result should contain only entries created before this timestamp
             (unix millis).
           in: query
           name: before
@@ -3458,8 +3480,8 @@ paths:
           description: Internal Server Error
       tags:
         - pullreq
-  /repos/{repo_ref}/pullreq/{pullreq_number}/comments/{pullreq_comment_id}/status:
-    put:
+  ? /repos/{repo_ref}/pullreq/{pullreq_number}/comments/{pullreq_comment_id}/status
+  : put:
       operationId: commentStatusPullReq
       parameters:
         - in: path
@@ -4098,7 +4120,8 @@ paths:
     get:
       operationId: getRaw
       parameters:
-        - description: The git reference (branch / tag / commitID) that will be used
+        - description:
+            The git reference (branch / tag / commitID) that will be used
             to retrieve the data. If no value is provided the default branch of the
             repository is used.
           in: query
@@ -4413,6 +4436,8 @@ paths:
                   $ref: '#/components/schemas/EnumRuleState'
                 type:
                   $ref: '#/components/schemas/OpenapiRuleType'
+                uid:
+                  type: string
               type: object
       responses:
         '200':
@@ -4495,7 +4520,8 @@ paths:
     get:
       operationId: listTags
       parameters:
-        - description: Indicates whether optional commit information should be included
+        - description:
+            Indicates whether optional commit information should be included
             in the response.
           in: query
           name: include_commit
@@ -4648,6 +4674,13 @@ paths:
     delete:
       operationId: deleteTag
       parameters:
+        - description: Bypass rule violations if possible.
+          in: query
+          name: bypass_rules
+          required: false
+          schema:
+            default: false
+            type: boolean
         - in: path
           name: repo_ref
           required: true
@@ -4800,7 +4833,8 @@ paths:
     get:
       operationId: listWebhooks
       parameters:
-        - description: The substring which is used to filter the spaces by their path
+        - description:
+            The substring which is used to filter the spaces by their path
             name.
           in: query
           name: query
@@ -5686,7 +5720,8 @@ paths:
     get:
       operationId: listConnectors
       parameters:
-        - description: The substring which is used to filter the repositories by their
+        - description:
+            The substring which is used to filter the repositories by their
             path name.
           in: query
           name: query
@@ -6121,7 +6156,8 @@ paths:
     get:
       operationId: listRepos
       parameters:
-        - description: The substring which is used to filter the repositories by their
+        - description:
+            The substring which is used to filter the repositories by their
             path name.
           in: query
           name: query
@@ -6210,7 +6246,8 @@ paths:
     get:
       operationId: listSecrets
       parameters:
-        - description: The substring which is used to filter the repositories by their
+        - description:
+            The substring which is used to filter the repositories by their
             path name.
           in: query
           name: query
@@ -6322,7 +6359,8 @@ paths:
     get:
       operationId: listSpaces
       parameters:
-        - description: The substring which is used to filter the spaces by their path
+        - description:
+            The substring which is used to filter the spaces by their path
             name.
           in: query
           name: query
@@ -6411,7 +6449,8 @@ paths:
     get:
       operationId: listTemplates
       parameters:
-        - description: The substring which is used to filter the repositories by their
+        - description:
+            The substring which is used to filter the repositories by their
             path name.
           in: query
           name: query
@@ -6771,7 +6810,8 @@ paths:
     get:
       operationId: membershipSpaces
       parameters:
-        - description: The substring by which the spaces the users is a member of are
+        - description:
+            The substring by which the spaces the users is a member of are
             filtered.
           in: query
           name: query
@@ -6899,8 +6939,8 @@ components:
     EnumMergeMethod:
       enum:
         - merge
-        - squash
         - rebase
+        - squash
       type: string
     EnumParentResourceType:
       enum:
@@ -7000,22 +7040,22 @@ components:
         - tag_deleted
         - tag_updated
       type: string
-    GitrpcBlamePart:
+    GitBlamePart:
       properties:
         commit:
-          $ref: '#/components/schemas/GitrpcCommit'
+          $ref: '#/components/schemas/GitCommit'
         lines:
           items:
             type: string
           nullable: true
           type: array
       type: object
-    GitrpcCommit:
+    GitCommit:
       properties:
         author:
-          $ref: '#/components/schemas/GitrpcSignature'
+          $ref: '#/components/schemas/GitSignature'
         committer:
-          $ref: '#/components/schemas/GitrpcSignature'
+          $ref: '#/components/schemas/GitSignature'
         message:
           type: string
         sha:
@@ -7023,14 +7063,14 @@ components:
         title:
           type: string
       type: object
-    GitrpcFileAction:
+    GitFileAction:
       enum:
         - CREATE
         - UPDATE
         - DELETE
         - MOVE
       type: string
-    GitrpcFileDiff:
+    GitFileDiff:
       properties:
         additions:
           type: integer
@@ -7056,30 +7096,30 @@ components:
         sha:
           type: string
         status:
-          $ref: '#/components/schemas/GitrpcFileDiffStatus'
+          $ref: '#/components/schemas/GitFileDiffStatus'
       type: object
-    GitrpcFileDiffStatus:
+    GitFileDiffStatus:
       type: string
-    GitrpcIdentity:
+    GitIdentity:
       properties:
         email:
           type: string
         name:
           type: string
       type: object
-    GitrpcPathDetails:
+    GitPathDetails:
       properties:
         last_commit:
-          $ref: '#/components/schemas/GitrpcCommit'
+          $ref: '#/components/schemas/GitCommit'
         path:
           type: string
         size:
           type: integer
       type: object
-    GitrpcSignature:
+    GitSignature:
       properties:
         identity:
-          $ref: '#/components/schemas/GitrpcIdentity'
+          $ref: '#/components/schemas/GitIdentity'
         when:
           format: date-time
           type: string
@@ -7191,6 +7231,10 @@ components:
           type: array
         branch:
           type: string
+        bypass_rules:
+          type: boolean
+        dry_run_rules:
+          type: boolean
         message:
           type: string
         new_branch:
@@ -7227,6 +7271,8 @@ components:
       type: string
     OpenapiCreateBranchRequest:
       properties:
+        bypass_rules:
+          type: boolean
         name:
           type: string
         target:
@@ -7318,6 +7364,8 @@ components:
       type: object
     OpenapiCreateTagRequest:
       properties:
+        bypass_rules:
+          type: boolean
         message:
           type: string
         name:
@@ -7477,8 +7525,6 @@ components:
           type: string
         decision:
           $ref: '#/components/schemas/EnumPullReqReviewDecision'
-        message:
-          type: string
       type: object
     OpenapiReviewerAddPullReqRequest:
       properties:
@@ -7505,6 +7551,11 @@ components:
           type: string
         updated:
           type: integer
+        users:
+          additionalProperties:
+            $ref: '#/components/schemas/TypesPrincipalInfo'
+          nullable: true
+          type: object
       type: object
     OpenapiRuleDefinition:
       oneOf:
@@ -7518,8 +7569,6 @@ components:
       properties:
         is_draft:
           type: boolean
-        message:
-          type: string
         state:
           $ref: '#/components/schemas/EnumPullReqState'
       type: object
@@ -7794,7 +7843,7 @@ components:
     RepoCommitFileAction:
       properties:
         action:
-          $ref: '#/components/schemas/GitrpcFileAction'
+          $ref: '#/components/schemas/GitFileAction'
         encoding:
           $ref: '#/components/schemas/EnumContentEncodingType'
         path:
@@ -7861,7 +7910,7 @@ components:
       properties:
         details:
           items:
-            $ref: '#/components/schemas/GitrpcPathDetails'
+            $ref: '#/components/schemas/GitPathDetails'
           nullable: true
           type: array
       type: object
@@ -7902,6 +7951,8 @@ components:
       type: object
     SystemConfigOutput:
       properties:
+        public_resource_creation_enabled:
+          type: boolean
         user_signup_allowed:
           type: boolean
       type: object
@@ -7976,6 +8027,11 @@ components:
           type: array
         pattern:
           type: string
+        user_group_owner_evaluations:
+          items:
+            $ref: '#/components/schemas/TypesUserGroupOwnerEvaluation'
+          nullable: true
+          type: array
       type: object
     TypesCommit:
       properties:
@@ -7994,6 +8050,12 @@ components:
       properties:
         commit_id:
           type: string
+        dry_run_rules:
+          type: boolean
+        rule_violations:
+          items:
+            $ref: '#/components/schemas/TypesRuleViolations'
+          type: array
       type: object
     TypesConnector:
       properties:
@@ -8017,8 +8079,10 @@ components:
     TypesDiffStats:
       properties:
         commits:
+          nullable: true
           type: integer
         files_changed:
+          nullable: true
           type: integer
       type: object
     TypesExecution:
@@ -8159,6 +8223,10 @@ components:
       type: object
     TypesMergeResponse:
       properties:
+        allowed_methods:
+          items:
+            $ref: '#/components/schemas/EnumMergeMethod'
+          type: array
         branch_deleted:
           type: boolean
         conflict_files:
@@ -8382,10 +8450,12 @@ components:
     TypesPullReqStats:
       properties:
         commits:
+          nullable: true
           type: integer
         conversations:
           type: integer
         files_changed:
+          nullable: true
           type: integer
         unresolved_count:
           type: integer
@@ -8457,6 +8527,8 @@ components:
       type: string
     TypesRuleViolations:
       properties:
+        bypassable:
+          type: boolean
         bypassed:
           type: boolean
         rule:
@@ -8712,6 +8784,18 @@ components:
           type: string
         updated:
           type: integer
+      type: object
+    TypesUserGroupOwnerEvaluation:
+      properties:
+        evaluations:
+          items:
+            $ref: '#/components/schemas/TypesOwnerEvaluation'
+          nullable: true
+          type: array
+        id:
+          type: string
+        name:
+          type: string
       type: object
     TypesViolation:
       properties:

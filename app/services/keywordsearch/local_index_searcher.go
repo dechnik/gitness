@@ -12,32 +12,31 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package pullreq
+package keywordsearch
 
 import (
 	"context"
 	"fmt"
 
-	"github.com/harness/gitness/app/auth"
-	"github.com/harness/gitness/types/enum"
+	"github.com/harness/gitness/types"
 )
 
-// Recheck re-checks all system PR checks (mergeability check, ...).
-func (c *Controller) Recheck(
-	ctx context.Context,
-	session *auth.Session,
-	repoRef string,
-	prNum int64,
-) error {
-	repo, err := c.getRepoCheckAccess(ctx, session, repoRef, enum.PermissionRepoPush)
-	if err != nil {
-		return fmt.Errorf("failed to acquire access to repo: %w", err)
-	}
+type LocalIndexSearcher struct {
+}
 
-	err = c.pullreqService.UpdateMergeDataIfRequired(ctx, repo.ID, prNum)
-	if err != nil {
-		return fmt.Errorf("failed to refresh merge data: %w", err)
-	}
+func NewLocalIndexSearcher() *LocalIndexSearcher {
+	return &LocalIndexSearcher{}
+}
 
-	return nil
+func (s *LocalIndexSearcher) Search(
+	_ context.Context,
+	_ []int64,
+	_ string,
+	_ int,
+) (types.SearchResult, error) {
+	return types.SearchResult{}, fmt.Errorf("not implemented")
+}
+
+func (s *LocalIndexSearcher) Index(_ context.Context, _ *types.Repository) error {
+	return fmt.Errorf("not implemented")
 }

@@ -94,6 +94,14 @@ func (c *Controller) Create(ctx context.Context, session *auth.Session, in *Crea
 	// backfil GitURL
 	repo.GitURL = c.urlProvider.GenerateGITCloneURL(repo.Path)
 
+	// index repository if files are created
+	if in.Readme || in.GitIgnore != "" || (in.License != "" && in.License != "none") {
+		err = c.indexer.Index(ctx, repo)
+		if err != nil {
+			log.Ctx(ctx).Warn().Err(err).Int64("repo_id", repo.ID).Msg("failed to index repo")
+		}
+	}
+
 	return repo, nil
 }
 
@@ -123,6 +131,10 @@ func (c *Controller) getSpaceCheckAuthRepoCreation(
 }
 
 func (c *Controller) sanitizeCreateInput(in *CreateInput) error {
+	if in.IsPublic && !c.publicResourceCreationEnabled {
+		return errPublicRepoCreationDisabled
+	}
+
 	if err := c.validateParentRef(in.ParentRef); err != nil {
 		return err
 	}

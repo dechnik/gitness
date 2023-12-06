@@ -62,6 +62,9 @@ type Config struct {
 	UserSignupEnabled   bool `envconfig:"GITNESS_USER_SIGNUP_ENABLED" default:"true"`
 	NestedSpacesEnabled bool `envconfig:"GITNESS_NESTED_SPACES_ENABLED" default:"false"`
 
+	// PublicResourceCreationEnabled specifies whether a user can create publicly accessible resources.
+	PublicResourceCreationEnabled bool `envconfig:"GITNESS_PUBLIC_RESOURCE_CREATION_ENABLED" default:"true"`
+
 	Profiler struct {
 		Type        string `envconfig:"GITNESS_PROFILER_TYPE"`
 		ServiceName string `envconfig:"GITNESS_PROFILER_SERVICE_NAME" default:"gitness"`
@@ -319,5 +322,10 @@ type Config struct {
 		Password string `envconfig:"GITNESS_SMTP_PASSWORD"`
 		FromMail string `envconfig:"GITNESS_SMTP_FROM_MAIL"`
 		Insecure bool   `envconfig:"GITNESS_SMTP_INSECURE"`
+	}
+
+	KeywordSearch struct {
+		Concurrency int `envconfig:"GITNESS_KEYWORD_SEARCH_CONCURRENCY" default:"4"`
+		MaxRetries  int `envconfig:"GITNESS_KEYWORD_SEARCH_MAX_RETRIES" default:"3"`
 	}
 }

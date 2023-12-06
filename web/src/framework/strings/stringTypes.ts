@@ -54,9 +54,21 @@ export interface StringsMap {
   'branchProtection.blockBranchDeletion': string
   'branchProtection.blockBranchDeletionText': string
   'branchProtection.bypassList': string
+  'branchProtection.commitDirectlyAlertBtn': string
+  'branchProtection.commitDirectlyAlertText': string
+  'branchProtection.commitDirectlyBlockText': string
+  'branchProtection.commitNewBranchAlertBtn': string
+  'branchProtection.commitNewBranchAlertText': string
+  'branchProtection.commitNewBranchBlockText': string
   'branchProtection.create': string
+  'branchProtection.createBranchAlertBtn': string
+  'branchProtection.createBranchAlertText': string
+  'branchProtection.createBranchBlockText': string
   'branchProtection.createRule': string
   'branchProtection.defaultBranch': string
+  'branchProtection.deleteBranchAlertBtn': string
+  'branchProtection.deleteBranchAlertText': string
+  'branchProtection.deleteBranchBlockText': string
   'branchProtection.deleteProtectionRule': string
   'branchProtection.deleteRule': string
   'branchProtection.deleteText': string
@@ -292,6 +304,7 @@ export interface StringsMap {
   failedToFetchFileContent: string
   failedToImportSpace: string
   failedToSavePipeline: string
+  featureRoadmap: string
   fileDeleted: string
   fileTooLarge: string
   files: string
@@ -484,6 +497,7 @@ export interface StringsMap {
   pending: string
   permissions: string
   permissionsFor: string
+  'pipelineConfig.label': string
   'pipelines.createNewPipeline': string
   'pipelines.created': string
   'pipelines.deletePipelineButton': string
@@ -745,6 +759,7 @@ export interface StringsMap {
   startSearching: string
   status: string
   'step.select': string
+  'stepCategory.select': string
   submitReview: string
   success: string
   switchBranchesTags: string
@@ -779,6 +794,7 @@ export interface StringsMap {
   'unsavedChanges.stay': string
   'unsavedChanges.title': string
   updateFile: string
+  updateLabel: string
   updateUser: string
   updateWebhook: string
   updated: string

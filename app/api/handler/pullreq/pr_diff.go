@@ -16,14 +16,15 @@ package pullreq
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/harness/gitness/app/api/controller/pullreq"
 	"github.com/harness/gitness/app/api/render"
 	"github.com/harness/gitness/app/api/request"
 )
 
-// HandleRecheck handles API that re-checks all system PR checks (mergeability check, ...).
-func HandleRecheck(pullreqCtrl *pullreq.Controller) http.HandlerFunc {
+// HandleDiff returns a http.HandlerFunc that returns diff.
+func HandleDiff(pullreqCtrl *pullreq.Controller) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		session, _ := request.AuthSessionFrom(ctx)
@@ -40,12 +41,26 @@ func HandleRecheck(pullreqCtrl *pullreq.Controller) http.HandlerFunc {
 			return
 		}
 
-		err = pullreqCtrl.Recheck(ctx, session, repoRef, pullreqNumber)
+		setSHAs := func(sourceSHA, mergeBaseSHA string) {
+			w.Header().Set("X-Source-Sha", sourceSHA)
+			w.Header().Set("X-Merge-Base-Sha", mergeBaseSHA)
+		}
+
+		if strings.HasPrefix(r.Header.Get("Accept"), "text/plain") {
+			err := pullreqCtrl.RawDiff(ctx, session, repoRef, pullreqNumber, setSHAs, w)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusOK)
+			}
+			return
+		}
+
+		_, includePatch := request.QueryParam(r, "include_patch")
+		stream, err := pullreqCtrl.Diff(ctx, session, repoRef, pullreqNumber, setSHAs, includePatch)
 		if err != nil {
 			render.TranslatedUserError(w, err)
 			return
 		}
 
-		w.WriteHeader(http.StatusNoContent)
+		render.JSONArrayDynamic(ctx, w, stream)
 	}
 }

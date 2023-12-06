@@ -18,6 +18,8 @@ import { Intent, IToaster, IToastProps, Position, Toaster } from '@blueprintjs/c
 import { get } from 'lodash-es'
 import moment from 'moment'
 import langMap from 'lang-map'
+import type { EditorDidMount } from 'react-monaco-editor'
+import type { editor } from 'monaco-editor'
 import type { EnumMergeMethod, TypesRuleViolations, TypesViolation, TypesCodeOwnerEvaluationEntry } from 'services/code'
 import type { GitInfoProps } from './GitUtils'
 
@@ -31,6 +33,11 @@ export enum PullRequestSection {
   COMMITS = 'commits',
   FILES_CHANGED = 'changes',
   CHECKS = 'checks'
+}
+
+export enum FeatureType {
+  COMINGSOON = 'comingSoon',
+  RELEASED = 'released'
 }
 
 export const LIST_FETCHING_LIMIT = 20
@@ -112,6 +119,14 @@ export interface RegisterForm {
   email: string
 }
 
+export interface FeatureData {
+  typeText: string
+  type: string
+  title: string
+  content: string
+  link: string
+}
+
 export interface SourceCodeEditorProps {
   source: string
   language?: string
@@ -123,6 +138,8 @@ export interface SourceCodeEditorProps {
   wordWrap?: boolean
   onChange?: (value: string) => void
   schema?: Record<string, unknown>
+  editorDidMount?: EditorDidMount
+  editorOptions?: editor.IStandaloneEditorConstructionOptions
 }
 
 export interface PullRequestActionsBoxProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullRequestMetadata'> {
@@ -539,3 +556,32 @@ export function isInViewport(element: Element) {
 
 export const truncateString = (str: string, length: number): string =>
   str.length <= length ? str : str.slice(0, length - 3) + '...'
+
+export const isIterable = (value: unknown): boolean => {
+  // checks for null and undefined
+  if (value == null) {
+    return false
+  }
+  return Symbol.iterator in Object(value)
+}
+
+/**
+ *
+ * @param obj - Object to get all keys for (including nested fields)
+ * @param prefix - Optional prefix for keys
+ * @returns all keys with their prefixes
+ */
+export const getAllKeysWithPrefix = (obj: Record<string, any>, prefix = ''): string[] => {
+  let keys: string[] = []
+  for (const key in obj) {
+    if (Object.prototype.hasOwnProperty.call(obj, key)) {
+      const currentKey = prefix ? `${prefix}.${key}` : key
+      keys.push(currentKey)
+      if (typeof obj[key] === 'object') {
+        // Recursively get keys from nested objects with updated prefix
+        keys = keys.concat(getAllKeysWithPrefix(obj[key], currentKey))
+      }
+    }
+  }
+  return keys
+}

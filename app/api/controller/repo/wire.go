@@ -19,6 +19,7 @@ import (
 	repoevents "github.com/harness/gitness/app/events/repo"
 	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/app/services/importer"
+	"github.com/harness/gitness/app/services/keywordsearch"
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/app/url"
@@ -46,15 +47,17 @@ func ProvideController(
 	pipelineStore store.PipelineStore,
 	principalStore store.PrincipalStore,
 	ruleStore store.RuleStore,
+	principalInfoCache store.PrincipalInfoCache,
 	protectionManager *protection.Manager,
 	rpcClient git.Interface,
 	importer *importer.Repository,
 	codeOwners *codeowners.Service,
 	reporeporter *repoevents.Reporter,
+	indexer keywordsearch.Indexer,
 ) *Controller {
-	return NewController(config.Git.DefaultBranch, tx, urlProvider,
+	return NewController(config, tx, urlProvider,
 		uidCheck, authorizer, repoStore,
 		spaceStore, pipelineStore,
-		principalStore, ruleStore, protectionManager,
-		rpcClient, importer, codeOwners, reporeporter)
+		principalStore, ruleStore, principalInfoCache, protectionManager,
+		rpcClient, importer, codeOwners, reporeporter, indexer)
 }

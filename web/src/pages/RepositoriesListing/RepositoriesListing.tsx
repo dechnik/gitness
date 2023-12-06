@@ -48,6 +48,7 @@ import { NoResultCard } from 'components/NoResultCard/NoResultCard'
 import { ResourceListingPagination } from 'components/ResourceListingPagination/ResourceListingPagination'
 import { RepoPublicLabel } from 'components/RepoPublicLabel/RepoPublicLabel'
 import noRepoImage from './no-repo.svg'
+import FeatureMap from './FeatureMap/FeatureMap'
 import css from './RepositoriesListing.module.scss'
 
 interface TypesRepoExtended extends TypesRepository {
@@ -208,38 +209,40 @@ export default function RepositoriesListing() {
           button: NewRepoButton
         }}>
         <LoadingSpinner visible={loading && searchTerm === undefined} />
+        <Layout.Horizontal>
+          <Container className={css.repoListingContainer} margin={{ top: 'medium' }}>
+            <Container padding="xlarge">
+              <Layout.Horizontal spacing="large" className={css.layout}>
+                {NewRepoButton}
+                <FlexExpander />
+                <SearchInputWithSpinner loading={loading} query={searchTerm} setQuery={setSearchTerm} />
+              </Layout.Horizontal>
 
-        <Container padding="xlarge">
-          <Layout.Horizontal spacing="large" className={css.layout}>
-            {NewRepoButton}
-            <FlexExpander />
-            <SearchInputWithSpinner loading={loading} query={searchTerm} setQuery={setSearchTerm} />
-          </Layout.Horizontal>
+              {!!repositories?.length && (
+                <Table<TypesRepoExtended>
+                  className={css.table}
+                  columns={columns}
+                  data={repositories || []}
+                  onRowClick={repoInfo => {
+                    return repoInfo.importing
+                      ? undefined
+                      : history.push(routes.toCODERepository({ repoPath: repoInfo.path as string }))
+                  }}
+                  getRowClassName={row =>
+                    cx(css.row, !row.original.description && css.noDesc, row.original.importing && css.rowDisable)
+                  }
+                />
+              )}
 
-          <Container margin={{ top: 'medium' }}>
-            {!!repositories?.length && (
-              <Table<TypesRepoExtended>
-                className={css.table}
-                columns={columns}
-                data={repositories || []}
-                onRowClick={repoInfo => {
-                  return repoInfo.importing
-                    ? undefined
-                    : history.push(routes.toCODERepository({ repoPath: repoInfo.path as string }))
-                }}
-                getRowClassName={row =>
-                  cx(css.row, !row.original.description && css.noDesc, row.original.importing && css.rowDisable)
-                }
+              <NoResultCard
+                showWhen={() => !!repositories && repositories.length === 0 && !!searchTerm?.length}
+                forSearch={true}
               />
-            )}
-
-            <NoResultCard
-              showWhen={() => !!repositories && repositories.length === 0 && !!searchTerm?.length}
-              forSearch={true}
-            />
+            </Container>
+            <ResourceListingPagination response={response} page={page} setPage={setPage} />
           </Container>
-          <ResourceListingPagination response={response} page={page} setPage={setPage} />
-        </Container>
+          <FeatureMap />
+        </Layout.Horizontal>
       </PageBody>
     </Container>
   )

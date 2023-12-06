@@ -27,6 +27,7 @@ import (
 	repoevents "github.com/harness/gitness/app/events/repo"
 	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/app/services/importer"
+	"github.com/harness/gitness/app/services/keywordsearch"
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/app/url"
@@ -37,26 +38,34 @@ import (
 	"github.com/harness/gitness/types/enum"
 )
 
+var (
+	errPublicRepoCreationDisabled = usererror.BadRequestf("Public repository creation is disabled.")
+)
+
 type Controller struct {
-	defaultBranch     string
-	tx                dbtx.Transactor
-	urlProvider       url.Provider
-	uidCheck          check.PathUID
-	authorizer        authz.Authorizer
-	repoStore         store.RepoStore
-	spaceStore        store.SpaceStore
-	pipelineStore     store.PipelineStore
-	principalStore    store.PrincipalStore
-	ruleStore         store.RuleStore
-	protectionManager *protection.Manager
-	git               git.Interface
-	importer          *importer.Repository
-	codeOwners        *codeowners.Service
-	eventReporter     *repoevents.Reporter
+	defaultBranch                 string
+	publicResourceCreationEnabled bool
+
+	tx                 dbtx.Transactor
+	urlProvider        url.Provider
+	uidCheck           check.PathUID
+	authorizer         authz.Authorizer
+	repoStore          store.RepoStore
+	spaceStore         store.SpaceStore
+	pipelineStore      store.PipelineStore
+	principalStore     store.PrincipalStore
+	ruleStore          store.RuleStore
+	principalInfoCache store.PrincipalInfoCache
+	protectionManager  *protection.Manager
+	git                git.Interface
+	importer           *importer.Repository
+	codeOwners         *codeowners.Service
+	eventReporter      *repoevents.Reporter
+	indexer            keywordsearch.Indexer
 }
 
 func NewController(
-	defaultBranch string,
+	config *types.Config,
 	tx dbtx.Transactor,
 	urlProvider url.Provider,
 	uidCheck check.PathUID,
@@ -66,28 +75,33 @@ func NewController(
 	pipelineStore store.PipelineStore,
 	principalStore store.PrincipalStore,
 	ruleStore store.RuleStore,
+	principalInfoCache store.PrincipalInfoCache,
 	protectionManager *protection.Manager,
 	git git.Interface,
 	importer *importer.Repository,
 	codeOwners *codeowners.Service,
 	eventReporter *repoevents.Reporter,
+	indexer keywordsearch.Indexer,
 ) *Controller {
 	return &Controller{
-		defaultBranch:     defaultBranch,
-		tx:                tx,
-		urlProvider:       urlProvider,
-		uidCheck:          uidCheck,
-		authorizer:        authorizer,
-		repoStore:         repoStore,
-		spaceStore:        spaceStore,
-		pipelineStore:     pipelineStore,
-		principalStore:    principalStore,
-		ruleStore:         ruleStore,
-		protectionManager: protectionManager,
-		git:               git,
-		importer:          importer,
-		codeOwners:        codeOwners,
-		eventReporter:     eventReporter,
+		defaultBranch:                 config.Git.DefaultBranch,
+		publicResourceCreationEnabled: config.PublicResourceCreationEnabled,
+		tx:                            tx,
+		urlProvider:                   urlProvider,
+		uidCheck:                      uidCheck,
+		authorizer:                    authorizer,
+		repoStore:                     repoStore,
+		spaceStore:                    spaceStore,
+		pipelineStore:                 pipelineStore,
+		principalStore:                principalStore,
+		ruleStore:                     ruleStore,
+		principalInfoCache:            principalInfoCache,
+		protectionManager:             protectionManager,
+		git:                           git,
+		importer:                      importer,
+		codeOwners:                    codeOwners,
+		eventReporter:                 eventReporter,
+		indexer:                       indexer,
 	}
 }
 
@@ -145,4 +159,23 @@ func (c *Controller) fetchRules(
 	}
 
 	return protectionRules, isRepoOwner, nil
+}
+
+func (c *Controller) getRuleUsers(ctx context.Context, r *types.Rule) (map[int64]*types.PrincipalInfo, error) {
+	rule, err := c.protectionManager.FromJSON(r.Type, r.Definition, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse json rule definition: %w", err)
+	}
+
+	userIDs, err := rule.UserIDs()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user ID from rule: %w", err)
+	}
+
+	userMap, err := c.principalInfoCache.Map(ctx, userIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get principal infos: %w", err)
+	}
+
+	return userMap, nil
 }

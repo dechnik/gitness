@@ -103,6 +103,9 @@ func (s *Service) triggerPREventOnBranchUpdate(ctx context.Context,
 			pr.MergeCheckStatus = enum.MergeCheckStatusUnchecked
 			pr.MergeSHA = nil
 			pr.MergeConflicts = nil
+			pr.Stats.DiffStats.Commits = nil
+			pr.Stats.DiffStats.FilesChanged = nil
+
 			return nil
 		})
 		if errors.Is(err, errPRNotOpen) {
@@ -138,8 +141,8 @@ func (s *Service) triggerPREventOnBranchUpdate(ctx context.Context,
 			Forced:          event.Payload.Forced,
 		})
 
-		if err = s.sseStreamer.Publish(ctx, targetRepo.ParentID, enum.SSETypePullrequesUpdated, pr); err != nil {
-			log.Ctx(ctx).Warn().Msg("failed to publish PR changed event")
+		if err = s.sseStreamer.Publish(ctx, targetRepo.ParentID, enum.SSETypePullRequestUpdated, pr); err != nil {
+			log.Ctx(ctx).Warn().Err(err).Msg("failed to publish PR changed event")
 		}
 
 		return nil
@@ -220,8 +223,8 @@ func (s *Service) closePullReqOnBranchDelete(ctx context.Context,
 			SourceSHA: pr.SourceSHA,
 		})
 
-		if err = s.sseStreamer.Publish(ctx, targetRepo.ParentID, enum.SSETypePullrequesUpdated, pr); err != nil {
-			log.Ctx(ctx).Warn().Msg("failed to publish PR changed event")
+		if err = s.sseStreamer.Publish(ctx, targetRepo.ParentID, enum.SSETypePullRequestUpdated, pr); err != nil {
+			log.Ctx(ctx).Warn().Err(err).Msg("failed to publish PR changed event")
 		}
 
 		return nil

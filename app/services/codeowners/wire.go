@@ -15,6 +15,7 @@
 package codeowners
 
 import (
+	"github.com/harness/gitness/app/services/usergroup"
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/git"
 
@@ -30,6 +31,7 @@ func ProvideCodeOwners(
 	repoStore store.RepoStore,
 	config Config,
 	principalStore store.PrincipalStore,
+	userGroupResolver usergroup.Resolver,
 ) *Service {
-	return New(repoStore, git, config, principalStore)
+	return New(repoStore, git, config, principalStore, userGroupResolver)
 }

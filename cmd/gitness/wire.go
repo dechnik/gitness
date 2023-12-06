@@ -14,6 +14,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/connector"
 	"github.com/harness/gitness/app/api/controller/execution"
 	"github.com/harness/gitness/app/api/controller/githook"
+	controllerkeywordsearch "github.com/harness/gitness/app/api/controller/keywordsearch"
 	controllerlogs "github.com/harness/gitness/app/api/controller/logs"
 	"github.com/harness/gitness/app/api/controller/pipeline"
 	"github.com/harness/gitness/app/api/controller/plugin"
@@ -53,10 +54,12 @@ import (
 	"github.com/harness/gitness/app/services/exporter"
 	"github.com/harness/gitness/app/services/importer"
 	"github.com/harness/gitness/app/services/job"
+	"github.com/harness/gitness/app/services/keywordsearch"
 	"github.com/harness/gitness/app/services/metric"
 	"github.com/harness/gitness/app/services/protection"
 	pullreqservice "github.com/harness/gitness/app/services/pullreq"
 	"github.com/harness/gitness/app/services/trigger"
+	"github.com/harness/gitness/app/services/usergroup"
 	"github.com/harness/gitness/app/services/webhook"
 	"github.com/harness/gitness/app/sse"
 	"github.com/harness/gitness/app/store"
@@ -159,6 +162,10 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		metric.WireSet,
 		cliserver.ProvideCodeOwnerConfig,
 		codeowners.WireSet,
+		cliserver.ProvideKeywordSearchConfig,
+		keywordsearch.WireSet,
+		controllerkeywordsearch.WireSet,
+		usergroup.WireSet,
 	)
 	return &cliserver.System{}, nil
 }

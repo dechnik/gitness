@@ -29,7 +29,6 @@ import (
 	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git"
 	gitenum "github.com/harness/gitness/git/enum"
-	gittypes "github.com/harness/gitness/git/types"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
@@ -86,7 +85,12 @@ func (c *Controller) Merge(
 		return nil, nil, err
 	}
 
-	targetRepo, err := c.getRepoCheckAccess(ctx, session, repoRef, enum.PermissionRepoPush)
+	requiredPermission := enum.PermissionRepoPush
+	if in.DryRun {
+		requiredPermission = enum.PermissionRepoView
+	}
+
+	targetRepo, err := c.getRepoCheckAccess(ctx, session, repoRef, requiredPermission)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to acquire access to target repo: %w", err)
 	}
@@ -125,7 +129,7 @@ func (c *Controller) Merge(
 			usererror.BadRequest("A newer commit is available. Only the latest commit can be merged.")
 	}
 
-	if pr.IsDraft {
+	if pr.IsDraft && !in.DryRun {
 		return nil, nil, usererror.BadRequest(
 			"Draft pull requests can't be merged. Clear the draft flag first.",
 		)
@@ -192,7 +196,55 @@ func (c *Controller) Merge(
 		return nil, nil, fmt.Errorf("failed to verify protection rules: %w", err)
 	}
 
+	//nolint:nestif
 	if in.DryRun {
+		// As the merge API is always executed under a global lock, we use the opportunity of dry-running the merge
+		// to check the PR's mergeability status if it's currently "unchecked". This can happen if the target branch
+		// has advanced. It's possible that the merge base commit is different too.
+		// So, the next time the API gets called for the same PR the mergeability status will not be unchecked.
+		// Without dry-run the execution would proceed below and would either merge the PR or set the conflict status.
+		if pr.MergeCheckStatus == enum.MergeCheckStatusUnchecked {
+			mergeOutput, err := c.git.Merge(ctx, &git.MergeParams{
+				WriteParams:     targetWriteParams,
+				BaseBranch:      pr.TargetBranch,
+				HeadRepoUID:     sourceRepo.GitUID,
+				HeadBranch:      pr.SourceBranch,
+				HeadExpectedSHA: in.SourceSHA,
+			})
+			if err != nil {
+				return nil, nil, fmt.Errorf("merge check execution failed: %w", err)
+			}
+
+			pr, err = c.pullreqStore.UpdateOptLock(ctx, pr, func(pr *types.PullReq) error {
+				if pr.SourceSHA != mergeOutput.HeadSHA {
+					return errors.New("source SHA has changed")
+				}
+				if mergeOutput.MergeSHA == "" || len(mergeOutput.ConflictFiles) > 0 {
+					pr.MergeCheckStatus = enum.MergeCheckStatusConflict
+					pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
+					pr.MergeTargetSHA = &mergeOutput.BaseSHA
+					pr.MergeSHA = nil
+					pr.MergeConflicts = mergeOutput.ConflictFiles
+				} else {
+					pr.MergeCheckStatus = enum.MergeCheckStatusMergeable
+					pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
+					pr.MergeTargetSHA = &mergeOutput.BaseSHA
+					pr.MergeSHA = &mergeOutput.MergeSHA
+					pr.MergeConflicts = nil
+				}
+				pr.Stats.DiffStats = types.NewDiffStats(mergeOutput.CommitCount, mergeOutput.ChangedFileCount)
+				return nil
+			})
+			if err != nil {
+				// non-critical error
+				log.Ctx(ctx).Warn().Err(err).Msg("failed to update unchecked pull request")
+			} else {
+				if err = c.sseStreamer.Publish(ctx, targetRepo.ParentID, enum.SSETypePullRequestUpdated, pr); err != nil {
+					log.Ctx(ctx).Warn().Err(err).Msg("failed to publish PR changed event")
+				}
+			}
+		}
+
 		// With in.DryRun=true this function never returns types.MergeViolations
 		out := &types.MergeResponse{
 			DryRun:         true,
@@ -200,26 +252,6 @@ func (c *Controller) Merge(
 			AllowedMethods: ruleOut.AllowedMethods,
 			ConflictFiles:  pr.MergeConflicts,
 			RuleViolations: violations,
-		}
-
-		// TODO: This is a temporary solution. The changes needed for the proper implementation:
-		// 1) Git: Change the merge method to return SHAs (source/target/merge base) even in case of conflicts.
-		// 2) Event handler: Update target and merge base SHA in the event handler even in case of merge conflicts.
-		// 3) Here: Update the pull request target and merge base SHA in the DB if merge check status is unchecked.
-		// 4) Remove the recheck API.
-		if pr.MergeCheckStatus == enum.MergeCheckStatusUnchecked {
-			_, err = c.git.Merge(ctx, &git.MergeParams{
-				WriteParams:     targetWriteParams,
-				BaseBranch:      pr.TargetBranch,
-				HeadRepoUID:     sourceRepo.GitUID,
-				HeadBranch:      pr.SourceBranch,
-				HeadExpectedSHA: in.SourceSHA,
-			})
-			if cferr := gittypes.AsMergeConflictsError(err); cferr != nil {
-				out.ConflictFiles = cferr.Files
-			} else if err != nil {
-				return nil, nil, fmt.Errorf("merge check execution failed: %w", err)
-			}
 		}
 
 		return out, nil, nil
@@ -231,7 +263,10 @@ func (c *Controller) Merge(
 
 	// TODO: for forking merge title might be different?
 	var mergeTitle string
-	if in.Method == enum.MergeMethod(gitenum.MergeMethodSquash) {
+	author := *session.Principal.ToPrincipalInfo()
+	if in.Method == enum.MergeMethodSquash {
+		// squash commit should show as authored by PR author
+		author = pr.Author
 		mergeTitle = fmt.Sprintf("%s (#%d)", pr.Title, pr.Number)
 	} else {
 		mergeTitle = fmt.Sprintf("Merge branch '%s' of %s (#%d)", pr.SourceBranch, sourceRepo.Path, pr.Number)
@@ -245,9 +280,9 @@ func (c *Controller) Merge(
 		HeadBranch:      pr.SourceBranch,
 		Title:           mergeTitle,
 		Message:         "",
-		Committer:       identityFromPrincipal(bootstrap.NewSystemServiceSession().Principal),
+		Committer:       identityFromPrincipalInfo(*bootstrap.NewSystemServiceSession().Principal.ToPrincipalInfo()),
 		CommitterDate:   &now,
-		Author:          identityFromPrincipal(session.Principal),
+		Author:          identityFromPrincipalInfo(author),
 		AuthorDate:      &now,
 		RefType:         gitenum.RefTypeBranch,
 		RefName:         pr.TargetBranch,
@@ -255,14 +290,37 @@ func (c *Controller) Merge(
 		Method:          gitenum.MergeMethod(in.Method),
 	})
 	if err != nil {
-		if cf := gittypes.AsMergeConflictsError(err); cf != nil {
-			//nolint: nilerr
-			return nil, &types.MergeViolations{
-				ConflictFiles:  cf.Files,
-				RuleViolations: violations,
-			}, nil
-		}
 		return nil, nil, fmt.Errorf("merge check execution failed: %w", err)
+	}
+	//nolint:nestif
+	if mergeOutput.MergeSHA == "" || len(mergeOutput.ConflictFiles) > 0 {
+		_, err = c.pullreqStore.UpdateOptLock(ctx, pr, func(pr *types.PullReq) error {
+			if pr.SourceSHA != mergeOutput.HeadSHA {
+				return errors.New("source SHA has changed")
+			}
+
+			// update all Merge specific information
+			pr.MergeCheckStatus = enum.MergeCheckStatusConflict
+			pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
+			pr.MergeTargetSHA = &mergeOutput.BaseSHA
+			pr.MergeSHA = nil
+			pr.MergeConflicts = mergeOutput.ConflictFiles
+			pr.Stats.DiffStats = types.NewDiffStats(mergeOutput.CommitCount, mergeOutput.ChangedFileCount)
+			return nil
+		})
+		if err != nil {
+			// non-critical error
+			log.Ctx(ctx).Warn().Err(err).Msg("failed to update pull request with conflict files")
+		} else {
+			if err = c.sseStreamer.Publish(ctx, targetRepo.ParentID, enum.SSETypePullRequestUpdated, pr); err != nil {
+				log.Ctx(ctx).Warn().Err(err).Msg("failed to publish PR changed event")
+			}
+		}
+
+		return nil, &types.MergeViolations{
+			ConflictFiles:  mergeOutput.ConflictFiles,
+			RuleViolations: violations,
+		}, nil
 	}
 
 	var activitySeqMerge, activitySeqBranchDeleted int64
@@ -275,11 +333,14 @@ func (c *Controller) Merge(
 		pr.MergeMethod = &in.Method
 
 		// update all Merge specific information (might be empty if previous merge check failed)
+		// since this is the final operation on the PR, we update any sha that might've changed by now.
 		pr.MergeCheckStatus = enum.MergeCheckStatusMergeable
+		pr.SourceSHA = mergeOutput.HeadSHA
 		pr.MergeTargetSHA = &mergeOutput.BaseSHA
 		pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
 		pr.MergeSHA = &mergeOutput.MergeSHA
 		pr.MergeConflicts = nil
+		pr.Stats.DiffStats = types.NewDiffStats(mergeOutput.CommitCount, mergeOutput.ChangedFileCount)
 
 		// update sequence for PR activities
 		pr.ActivitySeq++
@@ -334,13 +395,14 @@ func (c *Controller) Merge(
 			if _, errAct := c.activityStore.CreateWithPayload(ctx, pr, session.Principal.ID,
 				&types.PullRequestActivityPayloadBranchDelete{SHA: in.SourceSHA}); errAct != nil {
 				// non-critical error
-				log.Ctx(ctx).Err(errAct).Msgf("failed to write pull request activity for successful automatic branch delete")
+				log.Ctx(ctx).Err(errAct).
+					Msgf("failed to write pull request activity for successful automatic branch delete")
 			}
 		}
 	}
 
-	if err = c.sseStreamer.Publish(ctx, targetRepo.ParentID, enum.SSETypePullrequesUpdated, pr); err != nil {
-		log.Ctx(ctx).Warn().Msg("failed to publish PR changed event")
+	if err = c.sseStreamer.Publish(ctx, targetRepo.ParentID, enum.SSETypePullRequestUpdated, pr); err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to publish PR changed event")
 	}
 
 	return &types.MergeResponse{

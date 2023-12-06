@@ -196,7 +196,7 @@ export const Conversation: React.FC<ConversationProps> = ({
         boxClassName={css.commentBox}
         editorClassName={css.commentEditor}
         commentItems={[]}
-        currentUserName={currentUser.display_name}
+        currentUserName={currentUser.display_name || currentUser.email || ''}
         resetOnSave
         hideCancel={false}
         setDirty={setDirtyNewComment}
@@ -383,6 +383,7 @@ export const Conversation: React.FC<ConversationProps> = ({
                       repoMetadata={repoMetadata}
                       pullRequestMetadata={pullRequestMetadata}
                       prChecksDecisionResult={prChecksDecisionResult}
+                      codeOwners={codeOwners as TypesCodeOwnerEvaluation}
                     />
                   )}
                   {codeOwners && prChecksDecisionResult && (
