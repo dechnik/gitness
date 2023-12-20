@@ -132,6 +132,7 @@ export interface StringsMap {
   checkRuns: string
   checkSuites: string
   checks: string
+  clear: string
   clickHereToDownload: string
   clone: string
   cloneHTTPS: string
@@ -222,6 +223,7 @@ export interface StringsMap {
   diff: string
   disableWebhookContent: string
   disableWebhookTitle: string
+  discard: string
   displayName: string
   download: string
   draft: string
@@ -388,6 +390,7 @@ export interface StringsMap {
   isRequired: string
   key: string
   killed: string
+  language: string
   leaveAComment: string
   license: string
   lineBreaks: string
@@ -406,6 +409,7 @@ export interface StringsMap {
   missingPermsContent: string
   myComments: string
   nDays: string
+  nMoreMatches: string
   name: string
   nameYourBranch: string
   nameYourFile: string
@@ -498,6 +502,7 @@ export interface StringsMap {
   permissions: string
   permissionsFor: string
   'pipelineConfig.label': string
+  'pipelineConfig.yamlUpdated': string
   'pipelines.createNewPipeline': string
   'pipelines.created': string
   'pipelines.deletePipelineButton': string
@@ -688,6 +693,7 @@ export interface StringsMap {
   resolve: string
   resolved: string
   resolvedComments: string
+  results: string
   reviewerNotFound: string
   reviewers: string
   role: string
@@ -699,6 +705,7 @@ export interface StringsMap {
   scrollToTop: string
   search: string
   searchBranches: string
+  searchExamples: string
   searchHeader: string
   searchResult: string
   secret: string
@@ -719,8 +726,11 @@ export interface StringsMap {
   'secrets.secretUpdated': string
   'secrets.showValue': string
   'secrets.updateSecret': string
+  seeNMoreMatches: string
   selectBranchPlaceHolder: string
+  selectLanguagePlaceholder: string
   selectRange: string
+  selectRepositoryPlaceholder: string
   selectSpace: string
   selectSpaceText: string
   selectStatuses: string
@@ -732,7 +742,9 @@ export interface StringsMap {
   showCommitHistory: string
   showEverything: string
   showLess: string
+  showLessMatches: string
   showMore: string
+  showNMoreMatches: string
   signIn: string
   signUp: string
   skipped: string
@@ -858,6 +870,7 @@ export interface StringsMap {
   webhookPRClosed: string
   webhookPRCommentCreated: string
   webhookPRCreated: string
+  webhookPRMerged: string
   webhookPRReopened: string
   webhookSelectAllEvents: string
   webhookSelectIndividualEvents: string

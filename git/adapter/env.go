@@ -15,6 +15,7 @@
 package adapter
 
 const (
+	gitTrace          = "GIT_TRACE"
 	gitCommitterEmail = "GIT_COMMITTER_EMAIL"
 	gitCommitterName  = "GIT_COMMITTER_NAME"
 	gitCommitterDate  = "GIT_COMMITTER_DATE"

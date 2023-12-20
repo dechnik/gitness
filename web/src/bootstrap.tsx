@@ -33,7 +33,9 @@ ReactDOM.render(
     standalone
     routes={routes}
     hooks={{
-      usePermissionTranslate: noop
+      usePermissionTranslate: noop,
+      useExecutionDataHook: noop,
+      useLogsContentHook: noop
     }}
     currentUser={defaultCurrentUser}
     currentUserProfileURL=""

@@ -33,6 +33,7 @@ import (
 
 // SharedRepo is a type to wrap our upload repositories as a shallow clone.
 type SharedRepo struct {
+	adapter        Adapter
 	repoUID        string
 	repo           *gitea.Repository
 	remoteRepoPath string
@@ -41,6 +42,7 @@ type SharedRepo struct {
 
 // NewSharedRepo creates a new temporary upload repository.
 func NewSharedRepo(
+	adapter Adapter,
 	baseTmpDir string,
 	repoUID string,
 	remoteRepoPath string,
@@ -50,6 +52,7 @@ func NewSharedRepo(
 		return nil, err
 	}
 	t := &SharedRepo{
+		adapter:        adapter,
 		repoUID:        repoUID,
 		remoteRepoPath: remoteRepoPath,
 		tmpPath:        tmpPath,
@@ -401,26 +404,15 @@ func (r *SharedRepo) push(
 	env ...string,
 ) error {
 	// Because calls hooks we need to pass in the environment
-	if err := gitea.Push(ctx, r.tmpPath, gitea.PushOptions{
+	if err := r.adapter.Push(ctx, r.tmpPath, types.PushOptions{
 		Remote: r.remoteRepoPath,
 		Branch: sourceRef + ":" + destinationRef,
 		Env:    env,
 		Force:  force,
 	}); err != nil {
-		if gitea.IsErrPushOutOfDate(err) {
-			return err
-		} else if gitea.IsErrPushRejected(err) {
-			rejectErr := new(gitea.ErrPushRejected)
-			if errors.As(err, &rejectErr) {
-				log.Ctx(ctx).Info().Msgf("Unable to push back to repo from temporary repo due to rejection:"+
-					" %s \nStdout: %s\nStderr: %s\nError: %v",
-					r.repoUID, rejectErr.StdOut, rejectErr.StdErr, rejectErr.Err)
-			}
-			return err
-		}
-		return processGiteaErrorf(err, "unable to push back to repo from temporary repo: %s Error: %v",
-			r.repoUID, err)
+		return fmt.Errorf("unable to push back to repo from temporary repo: %w", err)
 	}
+
 	return nil
 }
 
@@ -482,5 +474,5 @@ func (a Adapter) SharedRepository(
 	repoUID string,
 	remotePath string,
 ) (*SharedRepo, error) {
-	return NewSharedRepo(tmpDir, repoUID, remotePath)
+	return NewSharedRepo(a, tmpDir, repoUID, remotePath)
 }

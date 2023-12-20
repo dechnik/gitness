@@ -25,10 +25,13 @@ import (
 	"github.com/harness/gitness/app/services/cleanup"
 	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/app/services/keywordsearch"
+	"github.com/harness/gitness/app/services/notification"
 	"github.com/harness/gitness/app/services/trigger"
 	"github.com/harness/gitness/app/services/webhook"
 	"github.com/harness/gitness/blob"
 	"github.com/harness/gitness/events"
+	gittypes "github.com/harness/gitness/git/types"
+	"github.com/harness/gitness/job"
 	"github.com/harness/gitness/lock"
 	"github.com/harness/gitness/pubsub"
 	"github.com/harness/gitness/store/database"
@@ -74,6 +77,7 @@ func LoadConfig() (*types.Config, error) {
 
 		config.Git.HookPath = executablePath
 	}
+
 	if config.Git.Root == "" {
 		homedir, err := os.UserHomeDir()
 		if err != nil {
@@ -256,6 +260,20 @@ func ProvideBlobStoreConfig(config *types.Config) (blob.Config, error) {
 	}, nil
 }
 
+// ProvideGitConfig loads the git config from the main config.
+func ProvideGitConfig(config *types.Config) gittypes.Config {
+	return gittypes.Config{
+		Trace:    config.Git.Trace,
+		Root:     config.Git.Root,
+		TmpDir:   config.Git.TmpDir,
+		HookPath: config.Git.HookPath,
+		LastCommitCache: gittypes.LastCommitCacheConfig{
+			Mode:     config.Git.LastCommitCache.Mode,
+			Duration: config.Git.LastCommitCache.Duration,
+		},
+	}
+}
+
 // ProvideEventsConfig loads the events config from the main config.
 func ProvideEventsConfig(config *types.Config) events.Config {
 	return events.Config{
@@ -276,6 +294,14 @@ func ProvideWebhookConfig(config *types.Config) webhook.Config {
 		MaxRetries:          config.Webhook.MaxRetries,
 		AllowPrivateNetwork: config.Webhook.AllowPrivateNetwork,
 		AllowLoopback:       config.Webhook.AllowLoopback,
+	}
+}
+
+func ProvideNotificationConfig(config *types.Config) notification.Config {
+	return notification.Config{
+		EventReaderName: config.InstanceID,
+		Concurrency:     config.Notification.Concurrency,
+		MaxRetries:      config.Notification.MaxRetries,
 	}
 }
 
@@ -334,5 +360,13 @@ func ProvideKeywordSearchConfig(config *types.Config) keywordsearch.Config {
 		EventReaderName: config.InstanceID,
 		Concurrency:     config.KeywordSearch.Concurrency,
 		MaxRetries:      config.KeywordSearch.MaxRetries,
+	}
+}
+
+func ProvideJobsConfig(config *types.Config) job.Config {
+	return job.Config{
+		InstanceID:                  config.InstanceID,
+		BackgroundJobsMaxRunning:    config.BackgroundJobs.MaxRunning,
+		BackgroundJobsRetentionTime: config.BackgroundJobs.RetentionTime,
 	}
 }

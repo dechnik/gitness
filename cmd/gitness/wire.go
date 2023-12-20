@@ -13,7 +13,6 @@ import (
 	checkcontroller "github.com/harness/gitness/app/api/controller/check"
 	"github.com/harness/gitness/app/api/controller/connector"
 	"github.com/harness/gitness/app/api/controller/execution"
-	"github.com/harness/gitness/app/api/controller/githook"
 	controllerkeywordsearch "github.com/harness/gitness/app/api/controller/keywordsearch"
 	controllerlogs "github.com/harness/gitness/app/api/controller/logs"
 	"github.com/harness/gitness/app/api/controller/pipeline"
@@ -37,6 +36,7 @@ import (
 	gitevents "github.com/harness/gitness/app/events/git"
 	pullreqevents "github.com/harness/gitness/app/events/pullreq"
 	repoevents "github.com/harness/gitness/app/events/repo"
+	"github.com/harness/gitness/app/githook"
 	"github.com/harness/gitness/app/pipeline/canceler"
 	"github.com/harness/gitness/app/pipeline/commit"
 	"github.com/harness/gitness/app/pipeline/file"
@@ -53,9 +53,10 @@ import (
 	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/app/services/exporter"
 	"github.com/harness/gitness/app/services/importer"
-	"github.com/harness/gitness/app/services/job"
 	"github.com/harness/gitness/app/services/keywordsearch"
 	"github.com/harness/gitness/app/services/metric"
+	"github.com/harness/gitness/app/services/notification"
+	"github.com/harness/gitness/app/services/notification/mailer"
 	"github.com/harness/gitness/app/services/protection"
 	pullreqservice "github.com/harness/gitness/app/services/pullreq"
 	"github.com/harness/gitness/app/services/trigger"
@@ -74,6 +75,7 @@ import (
 	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/git/adapter"
 	"github.com/harness/gitness/git/storage"
+	"github.com/harness/gitness/job"
 	"github.com/harness/gitness/livelog"
 	"github.com/harness/gitness/lock"
 	"github.com/harness/gitness/pubsub"
@@ -92,6 +94,8 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		cliserver.ProvideDatabaseConfig,
 		database.WireSet,
 		cliserver.ProvideBlobStoreConfig,
+		mailer.WireSet,
+		notification.WireSet,
 		blob.WireSet,
 		dbtx.WireSet,
 		cache.WireSet,
@@ -117,6 +121,7 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		repoevents.WireSet,
 		storage.WireSet,
 		adapter.WireSet,
+		cliserver.ProvideGitConfig,
 		git.WireSet,
 		store.WireSet,
 		check.WireSet,
@@ -124,6 +129,7 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		cliserver.ProvideEventsConfig,
 		events.WireSet,
 		cliserver.ProvideWebhookConfig,
+		cliserver.ProvideNotificationConfig,
 		webhook.WireSet,
 		cliserver.ProvideTriggerConfig,
 		trigger.WireSet,
@@ -135,6 +141,7 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		cliserver.ProvideCleanupConfig,
 		cleanup.WireSet,
 		codecomments.WireSet,
+		cliserver.ProvideJobsConfig,
 		job.WireSet,
 		protection.WireSet,
 		checkcontroller.WireSet,

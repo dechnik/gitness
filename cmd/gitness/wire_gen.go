@@ -12,7 +12,6 @@ import (
 	check2 "github.com/harness/gitness/app/api/controller/check"
 	"github.com/harness/gitness/app/api/controller/connector"
 	"github.com/harness/gitness/app/api/controller/execution"
-	"github.com/harness/gitness/app/api/controller/githook"
 	keywordsearch2 "github.com/harness/gitness/app/api/controller/keywordsearch"
 	logs2 "github.com/harness/gitness/app/api/controller/logs"
 	"github.com/harness/gitness/app/api/controller/pipeline"
@@ -36,6 +35,7 @@ import (
 	events4 "github.com/harness/gitness/app/events/git"
 	events3 "github.com/harness/gitness/app/events/pullreq"
 	events2 "github.com/harness/gitness/app/events/repo"
+	"github.com/harness/gitness/app/githook"
 	"github.com/harness/gitness/app/pipeline/canceler"
 	"github.com/harness/gitness/app/pipeline/commit"
 	"github.com/harness/gitness/app/pipeline/file"
@@ -52,9 +52,10 @@ import (
 	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/app/services/exporter"
 	"github.com/harness/gitness/app/services/importer"
-	"github.com/harness/gitness/app/services/job"
 	"github.com/harness/gitness/app/services/keywordsearch"
 	"github.com/harness/gitness/app/services/metric"
+	"github.com/harness/gitness/app/services/notification"
+	"github.com/harness/gitness/app/services/notification/mailer"
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/app/services/pullreq"
 	trigger2 "github.com/harness/gitness/app/services/trigger"
@@ -73,6 +74,7 @@ import (
 	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/git/adapter"
 	"github.com/harness/gitness/git/storage"
+	"github.com/harness/gitness/job"
 	"github.com/harness/gitness/livelog"
 	"github.com/harness/gitness/lock"
 	"github.com/harness/gitness/pubsub"
@@ -124,18 +126,22 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	goGitRepoProvider := adapter.ProvideGoGitRepoProvider()
+	typesConfig := server.ProvideGitConfig(config)
 	universalClient, err := server.ProvideRedis(config)
 	if err != nil {
 		return nil, err
 	}
-	cacheCache := adapter.ProvideLastCommitCache(config, universalClient, goGitRepoProvider)
-	gitAdapter, err := git.ProvideGITAdapter(goGitRepoProvider, cacheCache)
+	cacheCache, err := adapter.ProvideLastCommitCache(typesConfig, universalClient)
+	if err != nil {
+		return nil, err
+	}
+	clientFactory := githook.ProvideFactory()
+	gitAdapter, err := git.ProvideGITAdapter(typesConfig, cacheCache, clientFactory)
 	if err != nil {
 		return nil, err
 	}
 	storageStore := storage.ProvideLocalStore()
-	gitInterface, err := git.ProvideService(config, gitAdapter, storageStore)
+	gitInterface, err := git.ProvideService(typesConfig, gitAdapter, storageStore)
 	if err != nil {
 		return nil, err
 	}
@@ -150,7 +156,8 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	executor := job.ProvideExecutor(jobStore, pubSub)
 	lockConfig := server.ProvideLockConfig(config)
 	mutexManager := lock.ProvideMutexManager(lockConfig, universalClient)
-	jobScheduler, err := job.ProvideScheduler(jobStore, executor, mutexManager, pubSub, config)
+	jobConfig := server.ProvideJobsConfig(config)
+	jobScheduler, err := job.ProvideScheduler(jobStore, executor, mutexManager, pubSub, jobConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -243,10 +250,11 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	githookController := githook.ProvideController(authorizer, principalStore, repoStore, reporter2, pullReqStore, provider, protectionManager)
+	githookController := githook.ProvideController(authorizer, principalStore, repoStore, reporter2, gitInterface, pullReqStore, provider, protectionManager, clientFactory)
 	serviceaccountController := serviceaccount.NewController(principalUID, authorizer, principalStore, spaceStore, repoStore, tokenStore)
 	principalController := principal.ProvideController(principalStore)
-	checkController := check2.ProvideController(transactor, authorizer, repoStore, checkStore, gitInterface)
+	v := check2.ProvideCheckSanitizers()
+	checkController := check2.ProvideController(transactor, authorizer, repoStore, checkStore, gitInterface, v)
 	systemController := system.NewController(principalStore, config)
 	blobConfig, err := server.ProvideBlobStoreConfig(config)
 	if err != nil {
@@ -286,12 +294,19 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
+	mailerMailer := mailer.ProvideMailClient(config)
+	notificationClient := notification.ProvideMailClient(mailerMailer)
+	notificationConfig := server.ProvideNotificationConfig(config)
+	notificationService, err := notification.ProvideNotificationService(ctx, notificationClient, notificationConfig, eventsReaderFactory, pullReqStore, repoStore, principalInfoView, principalInfoCache, pullReqReviewerStore, pullReqActivityStore, spacePathStore, provider)
+	if err != nil {
+		return nil, err
+	}
 	keywordsearchConfig := server.ProvideKeywordSearchConfig(config)
 	keywordsearchService, err := keywordsearch.ProvideService(ctx, keywordsearchConfig, readerFactory, repoStore, indexer)
 	if err != nil {
 		return nil, err
 	}
-	servicesServices := services.ProvideServices(webhookService, pullreqService, triggerService, jobScheduler, collector, cleanupService, keywordsearchService)
+	servicesServices := services.ProvideServices(webhookService, pullreqService, triggerService, jobScheduler, collector, cleanupService, notificationService, keywordsearchService)
 	serverSystem := server.NewSystem(bootstrapBootstrap, serverServer, poller, pluginManager, servicesServices)
 	return serverSystem, nil
 }

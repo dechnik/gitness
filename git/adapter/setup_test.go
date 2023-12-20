@@ -20,9 +20,11 @@ import (
 	"path"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/harness/gitness/git/adapter"
-	"github.com/harness/gitness/types"
+	"github.com/harness/gitness/git/hook"
+	"github.com/harness/gitness/git/types"
 
 	gitea "code.gitea.io/gitea/modules/git"
 )
@@ -41,17 +43,18 @@ var (
 	}
 )
 
+type mockClientFactory struct{}
+
+func (f *mockClientFactory) NewClient(_ context.Context, _ map[string]string) (hook.Client, error) {
+	return hook.NewNoopClient([]string{"mocked client"}), nil
+}
+
 func setupGit(t *testing.T) adapter.Adapter {
 	t.Helper()
-	config := &types.Config{}
-	gogitProvider := adapter.ProvideGoGitRepoProvider()
 	git, err := adapter.New(
-		gogitProvider,
-		adapter.ProvideLastCommitCache(
-			config,
-			nil,
-			gogitProvider,
-		),
+		types.Config{Trace: true},
+		adapter.NewInMemoryLastCommitCache(5*time.Minute),
+		&mockClientFactory{},
 	)
 	if err != nil {
 		t.Fatalf("error initializing repository: %v", err)

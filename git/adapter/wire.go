@@ -15,46 +15,40 @@
 package adapter
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/harness/gitness/cache"
+	"github.com/harness/gitness/git/enum"
 	"github.com/harness/gitness/git/types"
-	apptypes "github.com/harness/gitness/types"
 
 	"github.com/go-redis/redis/v8"
 	"github.com/google/wire"
 )
 
-const (
-	ModeInMemory = "inmemory"
-	ModeRedis    = "redis"
-	ModeNone     = "none"
-)
-
 var WireSet = wire.NewSet(
-	ProvideGoGitRepoProvider,
 	ProvideLastCommitCache,
 )
 
-func ProvideGoGitRepoProvider() *GoGitRepoProvider {
-	const objectCacheSize = 16 << 20 // 16MiB
-	return NewGoGitRepoProvider(objectCacheSize, 15*time.Minute)
-}
-
 func ProvideLastCommitCache(
-	config *apptypes.Config,
+	config types.Config,
 	redisClient redis.UniversalClient,
-	repoProvider *GoGitRepoProvider,
-) cache.Cache[CommitEntryKey, *types.Commit] {
-	cacheDuration := config.Git.LastCommitCache.Duration
+) (cache.Cache[CommitEntryKey, *types.Commit], error) {
+	cacheDuration := config.LastCommitCache.Duration
 
-	if config.Git.LastCommitCache.Mode == ModeNone || cacheDuration < time.Second {
-		return NoLastCommitCache(repoProvider)
+	// no need to cache if it's too short
+	if cacheDuration < time.Second {
+		return NoLastCommitCache(), nil
 	}
 
-	if config.Git.LastCommitCache.Mode == ModeRedis && redisClient != nil {
-		return NewRedisLastCommitCache(redisClient, cacheDuration, repoProvider)
+	switch config.LastCommitCache.Mode {
+	case enum.LastCommitCacheModeNone:
+		return NoLastCommitCache(), nil
+	case enum.LastCommitCacheModeInMemory:
+		return NewInMemoryLastCommitCache(cacheDuration), nil
+	case enum.LastCommitCacheModeRedis:
+		return NewRedisLastCommitCache(redisClient, cacheDuration)
+	default:
+		return nil, fmt.Errorf("unknown last commit cache mode provided: %q", config.LastCommitCache.Mode)
 	}
-
-	return NewInMemoryLastCommitCache(cacheDuration, repoProvider)
 }

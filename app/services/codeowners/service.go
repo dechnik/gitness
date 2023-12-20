@@ -25,6 +25,7 @@ import (
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git"
+	gittypes "github.com/harness/gitness/git/types"
 	gitness_store "github.com/harness/gitness/store"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
@@ -223,6 +224,12 @@ func (s *Service) getCodeOwnerFile(
 		return nil, fmt.Errorf("failed to get file content: %w", err)
 	}
 
+	defer func() {
+		if err := output.Content.Close(); err != nil {
+			log.Ctx(ctx).Warn().Err(err).Msgf("failed to close blob content reader.")
+		}
+	}()
+
 	content, err := io.ReadAll(output.Content)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read blob content: %w", err)
@@ -249,7 +256,7 @@ func (s *Service) getCodeOwnerFileNode(
 			Path:       path,
 		})
 
-		if errors.AsStatus(err) == errors.StatusPathNotFound {
+		if gittypes.IsPathNotFoundError(err) {
 			continue
 		}
 		if err != nil {

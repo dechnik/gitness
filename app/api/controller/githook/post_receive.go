@@ -21,7 +21,8 @@ import (
 
 	"github.com/harness/gitness/app/auth"
 	events "github.com/harness/gitness/app/events/git"
-	"github.com/harness/gitness/githook"
+	"github.com/harness/gitness/git"
+	"github.com/harness/gitness/git/hook"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
@@ -43,23 +44,21 @@ const (
 func (c *Controller) PostReceive(
 	ctx context.Context,
 	session *auth.Session,
-	repoID int64,
-	principalID int64,
-	in githook.PostReceiveInput,
-) (*githook.Output, error) {
-	repo, err := c.getRepoCheckAccess(ctx, session, repoID, enum.PermissionRepoPush)
+	in types.GithookPostReceiveInput,
+) (hook.Output, error) {
+	repo, err := c.getRepoCheckAccess(ctx, session, in.RepoID, enum.PermissionRepoPush)
 	if err != nil {
-		return nil, err
+		return hook.Output{}, err
 	}
 
 	// report ref events (best effort)
-	c.reportReferenceEvents(ctx, repoID, principalID, in)
+	c.reportReferenceEvents(ctx, repo, in.PrincipalID, in.PostReceiveInput)
 
 	// create output object and have following messages fill its messages
-	out := &githook.Output{}
+	out := hook.Output{}
 
 	// handle branch updates related to PRs - best effort
-	c.handlePRMessaging(ctx, repo, in, out)
+	c.handlePRMessaging(ctx, repo, in.PostReceiveInput, &out)
 
 	return out, nil
 }
@@ -69,16 +68,16 @@ func (c *Controller) PostReceive(
 // TODO: in the future we might want to think about propagating errors so user is aware of events not being triggered.
 func (c *Controller) reportReferenceEvents(
 	ctx context.Context,
-	repoID int64,
+	repo *types.Repository,
 	principalID int64,
-	in githook.PostReceiveInput,
+	in hook.PostReceiveInput,
 ) {
 	for _, refUpdate := range in.RefUpdates {
 		switch {
 		case strings.HasPrefix(refUpdate.Ref, gitReferenceNamePrefixBranch):
-			c.reportBranchEvent(ctx, repoID, principalID, refUpdate)
+			c.reportBranchEvent(ctx, repo, principalID, refUpdate)
 		case strings.HasPrefix(refUpdate.Ref, gitReferenceNamePrefixTag):
-			c.reportTagEvent(ctx, repoID, principalID, refUpdate)
+			c.reportTagEvent(ctx, repo, principalID, refUpdate)
 		default:
 			// Ignore any other references in post-receive
 		}
@@ -87,61 +86,75 @@ func (c *Controller) reportReferenceEvents(
 
 func (c *Controller) reportBranchEvent(
 	ctx context.Context,
-	repoID int64,
+	repo *types.Repository,
 	principalID int64,
-	branchUpdate githook.ReferenceUpdate,
+	branchUpdate hook.ReferenceUpdate,
 ) {
 	switch {
 	case branchUpdate.Old == types.NilSHA:
 		c.gitReporter.BranchCreated(ctx, &events.BranchCreatedPayload{
-			RepoID:      repoID,
+			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         branchUpdate.Ref,
 			SHA:         branchUpdate.New,
 		})
 	case branchUpdate.New == types.NilSHA:
 		c.gitReporter.BranchDeleted(ctx, &events.BranchDeletedPayload{
-			RepoID:      repoID,
+			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         branchUpdate.Ref,
 			SHA:         branchUpdate.Old,
 		})
 	default:
+		result, err := c.git.IsAncestor(ctx, git.IsAncestorParams{
+			ReadParams:          git.ReadParams{RepoUID: repo.GitUID},
+			AncestorCommitSHA:   branchUpdate.Old,
+			DescendantCommitSHA: branchUpdate.New,
+		})
+		if err != nil {
+			log.Ctx(ctx).Err(err).
+				Str("ref", branchUpdate.Ref).
+				Msg("failed to check ancestor")
+		}
+		// In case of an error consider this a forced update. In post-update the branch has already been updated,
+		// so there's less harm in declaring the update as forced. A force update event might trigger some additional
+		// operations that aren't required for ordinary updates (force pushes alter the commit history of a branch).
+		forced := err != nil || !result.Ancestor
 		c.gitReporter.BranchUpdated(ctx, &events.BranchUpdatedPayload{
-			RepoID:      repoID,
+			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         branchUpdate.Ref,
 			OldSHA:      branchUpdate.Old,
 			NewSHA:      branchUpdate.New,
-			Forced:      false, // TODO: data not available yet
+			Forced:      forced,
 		})
 	}
 }
 
 func (c *Controller) reportTagEvent(
 	ctx context.Context,
-	repoID int64,
+	repo *types.Repository,
 	principalID int64,
-	tagUpdate githook.ReferenceUpdate,
+	tagUpdate hook.ReferenceUpdate,
 ) {
 	switch {
 	case tagUpdate.Old == types.NilSHA:
 		c.gitReporter.TagCreated(ctx, &events.TagCreatedPayload{
-			RepoID:      repoID,
+			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         tagUpdate.Ref,
 			SHA:         tagUpdate.New,
 		})
 	case tagUpdate.New == types.NilSHA:
 		c.gitReporter.TagDeleted(ctx, &events.TagDeletedPayload{
-			RepoID:      repoID,
+			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         tagUpdate.Ref,
 			SHA:         tagUpdate.Old,
 		})
 	default:
 		c.gitReporter.TagUpdated(ctx, &events.TagUpdatedPayload{
-			RepoID:      repoID,
+			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         tagUpdate.Ref,
 			OldSHA:      tagUpdate.Old,
@@ -157,8 +170,8 @@ func (c *Controller) reportTagEvent(
 func (c *Controller) handlePRMessaging(
 	ctx context.Context,
 	repo *types.Repository,
-	in githook.PostReceiveInput,
-	out *githook.Output,
+	in hook.PostReceiveInput,
+	out *hook.Output,
 ) {
 	// skip anything that was a batch push / isn't branch related / isn't updating/creating a branch.
 	if len(in.RefUpdates) != 1 ||
@@ -179,7 +192,7 @@ func (c *Controller) suggestPullRequest(
 	ctx context.Context,
 	repo *types.Repository,
 	branchName string,
-	out *githook.Output,
+	out *hook.Output,
 ) {
 	if branchName == repo.DefaultBranch {
 		// Don't suggest a pull request if this is a push to the default branch.
