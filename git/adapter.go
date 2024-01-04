@@ -33,6 +33,7 @@ type Adapter interface {
 	OpenRepository(ctx context.Context, path string) (*git.Repository, error)
 	SharedRepository(tmp string, repoUID string, remotePath string) (*adapter.SharedRepo, error)
 	Config(ctx context.Context, repoPath, key, value string) error
+	CountObjects(ctx context.Context, repoPath string) (types.ObjectCount, error)
 
 	SetDefaultBranch(ctx context.Context, repoPath string,
 		defaultBranch string, allowEmpty bool) error
@@ -68,7 +69,7 @@ type Adapter interface {
 	GetCommitDivergences(ctx context.Context, repoPath string,
 		requests []types.CommitDivergenceRequest, max int32) ([]types.CommitDivergence, error)
 	GetRef(ctx context.Context, repoPath string, reference string) (string, error)
-	UpdateRef(ctx context.Context, repoPath, reference, newValue, oldValue string) error
+	UpdateRef(ctx context.Context, envVars map[string]string, repoPath, reference, newValue, oldValue string) error
 	CreateTemporaryRepoForPR(ctx context.Context, reposTempPath string, pr *types.PullRequest,
 		baseBranch, trackingBranch string) (types.TempRepository, error)
 	Merge(ctx context.Context, pr *types.PullRequest, mergeMethod enum.MergeMethod, baseBranch, trackingBranch string,

@@ -190,6 +190,9 @@ type (
 		// Update the repo details.
 		Update(ctx context.Context, repo *types.Repository) error
 
+		// Update the repo size.
+		UpdateSize(ctx context.Context, repoID int64, repoSize int64) error
+
 		// UpdateOptLock the repo details using the optimistic locking mechanism.
 		UpdateOptLock(ctx context.Context, repo *types.Repository,
 			mutateFn func(repository *types.Repository) error) (*types.Repository, error)
@@ -202,6 +205,9 @@ type (
 
 		// List returns a list of repos in a space.
 		List(ctx context.Context, parentID int64, opts *types.RepoFilter) ([]*types.Repository, error)
+
+		// ListSizeInfos returns a list of all repo sizes.
+		ListSizeInfos(ctx context.Context) ([]*types.RepositorySizeInfo, error)
 	}
 
 	// RepoGitInfoView defines the repository GitUID view.
@@ -410,6 +416,9 @@ type (
 		// Find finds the webhook by id.
 		Find(ctx context.Context, id int64) (*types.Webhook, error)
 
+		// FindByUID finds the webhook with the given UID for the given parent.
+		FindByUID(ctx context.Context, parentType enum.WebhookParent, parentID int64, uid string) (*types.Webhook, error)
+
 		// Create creates a new webhook.
 		Create(ctx context.Context, hook *types.Webhook) error
 
@@ -422,6 +431,9 @@ type (
 
 		// Delete deletes the webhook for the given id.
 		Delete(ctx context.Context, id int64) error
+
+		// DeleteByUID deletes the webhook with the given UID for the given parent.
+		DeleteByUID(ctx context.Context, parentType enum.WebhookParent, parentID int64, uid string) error
 
 		// Count counts the webhooks for a given parent type and id.
 		Count(ctx context.Context, parentType enum.WebhookParent, parentID int64,

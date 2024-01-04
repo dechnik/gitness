@@ -14,6 +14,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/connector"
 	"github.com/harness/gitness/app/api/controller/execution"
 	controllerkeywordsearch "github.com/harness/gitness/app/api/controller/keywordsearch"
+	"github.com/harness/gitness/app/api/controller/limiter"
 	controllerlogs "github.com/harness/gitness/app/api/controller/logs"
 	"github.com/harness/gitness/app/api/controller/pipeline"
 	"github.com/harness/gitness/app/api/controller/plugin"
@@ -59,6 +60,7 @@ import (
 	"github.com/harness/gitness/app/services/notification/mailer"
 	"github.com/harness/gitness/app/services/protection"
 	pullreqservice "github.com/harness/gitness/app/services/pullreq"
+	"github.com/harness/gitness/app/services/reposize"
 	"github.com/harness/gitness/app/services/trigger"
 	"github.com/harness/gitness/app/services/usergroup"
 	"github.com/harness/gitness/app/services/webhook"
@@ -105,6 +107,7 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		server.WireSet,
 		url.WireSet,
 		space.WireSet,
+		limiter.WireSet,
 		repo.WireSet,
 		pullreq.WireSet,
 		controllerwebhook.WireSet,
@@ -167,6 +170,7 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		canceler.WireSet,
 		exporter.WireSet,
 		metric.WireSet,
+		reposize.WireSet,
 		cliserver.ProvideCodeOwnerConfig,
 		codeowners.WireSet,
 		cliserver.ProvideKeywordSearchConfig,

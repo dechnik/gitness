@@ -13,6 +13,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/connector"
 	"github.com/harness/gitness/app/api/controller/execution"
 	keywordsearch2 "github.com/harness/gitness/app/api/controller/keywordsearch"
+	"github.com/harness/gitness/app/api/controller/limiter"
 	logs2 "github.com/harness/gitness/app/api/controller/logs"
 	"github.com/harness/gitness/app/api/controller/pipeline"
 	"github.com/harness/gitness/app/api/controller/plugin"
@@ -58,6 +59,7 @@ import (
 	"github.com/harness/gitness/app/services/notification/mailer"
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/app/services/pullreq"
+	"github.com/harness/gitness/app/services/reposize"
 	trigger2 "github.com/harness/gitness/app/services/trigger"
 	"github.com/harness/gitness/app/services/usergroup"
 	"github.com/harness/gitness/app/services/webhook"
@@ -180,7 +182,11 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	repoController := repo.ProvideController(config, transactor, provider, pathUID, authorizer, repoStore, spaceStore, pipelineStore, principalStore, ruleStore, principalInfoCache, protectionManager, gitInterface, repository, codeownersService, reporter, indexer)
+	resourceLimiter, err := limiter.ProvideLimiter()
+	if err != nil {
+		return nil, err
+	}
+	repoController := repo.ProvideController(config, transactor, provider, pathUID, authorizer, repoStore, spaceStore, pipelineStore, principalStore, ruleStore, principalInfoCache, protectionManager, gitInterface, repository, codeownersService, reporter, indexer, resourceLimiter)
 	executionStore := database.ProvideExecutionStore(db)
 	checkStore := database.ProvideCheckStore(db, principalInfoCache)
 	stageStore := database.ProvideStageStore(db)
@@ -204,7 +210,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	spaceController := space.ProvideController(config, transactor, provider, streamer, pathUID, authorizer, spacePathStore, pipelineStore, secretStore, connectorStore, templateStore, spaceStore, repoStore, principalStore, repoController, membershipStore, repository, exporterRepository)
+	spaceController := space.ProvideController(config, transactor, provider, streamer, pathUID, authorizer, spacePathStore, pipelineStore, secretStore, connectorStore, templateStore, spaceStore, repoStore, principalStore, repoController, membershipStore, repository, exporterRepository, resourceLimiter)
 	pipelineController := pipeline.ProvideController(pathUID, repoStore, triggerStore, authorizer, pipelineStore)
 	secretController := secret.ProvideController(pathUID, encrypter, secretStore, authorizer, spaceStore)
 	triggerController := trigger.ProvideController(authorizer, triggerStore, pathUID, pipelineStore, repoStore)
@@ -250,7 +256,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	githookController := githook.ProvideController(authorizer, principalStore, repoStore, reporter2, gitInterface, pullReqStore, provider, protectionManager, clientFactory)
+	githookController := githook.ProvideController(authorizer, principalStore, repoStore, reporter2, gitInterface, pullReqStore, provider, protectionManager, clientFactory, resourceLimiter)
 	serviceaccountController := serviceaccount.NewController(principalUID, authorizer, principalStore, spaceStore, repoStore, tokenStore)
 	principalController := principal.ProvideController(principalStore)
 	v := check2.ProvideCheckSanitizers()
@@ -289,6 +295,10 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
+	calculator, err := reposize.ProvideCalculator(config, gitInterface, repoStore, jobScheduler, executor)
+	if err != nil {
+		return nil, err
+	}
 	cleanupConfig := server.ProvideCleanupConfig(config)
 	cleanupService, err := cleanup.ProvideService(cleanupConfig, jobScheduler, executor, webhookExecutionStore, tokenStore)
 	if err != nil {
@@ -306,7 +316,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	servicesServices := services.ProvideServices(webhookService, pullreqService, triggerService, jobScheduler, collector, cleanupService, notificationService, keywordsearchService)
+	servicesServices := services.ProvideServices(webhookService, pullreqService, triggerService, jobScheduler, collector, calculator, cleanupService, notificationService, keywordsearchService)
 	serverSystem := server.NewSystem(bootstrapBootstrap, serverServer, poller, pluginManager, servicesServices)
 	return serverSystem, nil
 }

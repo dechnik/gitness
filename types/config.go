@@ -223,11 +223,11 @@ type Config struct {
 			Email       string `envconfig:"GITNESS_PRINCIPAL_PIPELINE_EMAIL"        default:"pipeline@gitness.io"`
 		}
 		// Admin defines the principal information used to create the admin user.
-		// NOTE: The admin user is only auto-created in case a password is provided.
+		// NOTE: The admin user is only auto-created in case a password and an email is provided.
 		Admin struct {
 			UID         string `envconfig:"GITNESS_PRINCIPAL_ADMIN_UID"           default:"admin"`
 			DisplayName string `envconfig:"GITNESS_PRINCIPAL_ADMIN_DISPLAY_NAME"  default:"Administrator"`
-			Email       string `envconfig:"GITNESS_PRINCIPAL_ADMIN_EMAIL"         default:"admin@gitness.io"`
+			Email       string `envconfig:"GITNESS_PRINCIPAL_ADMIN_EMAIL"`    // No default email
 			Password    string `envconfig:"GITNESS_PRINCIPAL_ADMIN_PASSWORD"` // No default password
 		}
 	}
@@ -308,6 +308,13 @@ type Config struct {
 		Enabled  bool   `envconfig:"GITNESS_METRIC_ENABLED" default:"true"`
 		Endpoint string `envconfig:"GITNESS_METRIC_ENDPOINT" default:"https://stats.drone.ci/api/v1/gitness"`
 		Token    string `envconfig:"GITNESS_METRIC_TOKEN"`
+	}
+
+	RepoSize struct {
+		Enabled     bool          `envconfig:"GITNESS_REPO_SIZE_ENABLED" default:"true"`
+		CRON        string        `envconfig:"GITNESS_REPO_SIZE_CRON" default:"* * 0 * * * *"`
+		MaxDuration time.Duration `envconfig:"GITNESS_REPO_SIZE_MAX_DURATION" default:"15m"`
+		NumWorkers  int           `envconfig:"GITNESS_REPO_SIZE_NUM_WORKERS" default:"5"`
 	}
 
 	CodeOwners struct {

@@ -17,6 +17,9 @@
 /* eslint-disable */
 // This is an auto-generated file
 export declare const active: string
+export declare const bp3PopoverTarget: string
+export declare const bp3PopoverWrapper: string
+export declare const checkMenuItemContainer: string
 export declare const chevron: string
 export declare const consoleLine: string
 export declare const content: string
@@ -25,8 +28,11 @@ export declare const forPipeline: string
 export declare const header: string
 export declare const headerLayout: string
 export declare const hidden: string
+export declare const hideStages: string
 export declare const invert: string
 export declare const layout: string
+export declare const leftPaneContent: string
+export declare const leftPaneMenuItem: string
 export declare const logViewer: string
 export declare const main: string
 export declare const markdown: string

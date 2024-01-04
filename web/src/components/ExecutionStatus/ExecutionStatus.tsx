@@ -42,7 +42,8 @@ interface ExecutionStatusProps {
 }
 
 export enum ExecutionStateExtended {
-  FAILED = 'failed'
+  FAILED = 'failed',
+  ABORTED = 'aborted'
 }
 
 export const ExecutionStatus: React.FC<ExecutionStatusProps> = ({
@@ -73,7 +74,7 @@ export const ExecutionStatus: React.FC<ExecutionStatusProps> = ({
         title: getString('success').toLocaleUpperCase()
       },
       [ExecutionStateExtended.FAILED]: {
-        icon: 'circle-cross',
+        icon: 'error-transparent-no-outline',
         css: css.failure,
         title: getString('failed').toLocaleUpperCase()
       },
@@ -96,19 +97,31 @@ export const ExecutionStatus: React.FC<ExecutionStatusProps> = ({
         icon: 'execution-stopped',
         css: null,
         title: getString('killed').toLocaleUpperCase()
+      },
+      [ExecutionStateExtended.ABORTED]: {
+        icon: 'execution-stopped',
+        css: null,
+        title: getString('killed').toLocaleUpperCase()
       }
     }),
     [getString, inExecution, isCi]
   )
-  const map = useMemo(() => maps[status], [maps, status])
-
+  const map = useMemo(() => {
+    if (!maps || !status || !maps[status])
+      return {
+        icon: '',
+        css: null,
+        title: ''
+      }
+    return maps[status]
+  }, [maps, status])
   return (
     <Text
       tag="span"
-      className={cx(css.main, map.css, { [css.iconOnly]: iconOnly, [css.noBackground]: noBackground }, className)}
-      icon={map.icon as IconName}
+      className={cx(css.main, map?.css, { [css.iconOnly]: iconOnly, [css.noBackground]: noBackground }, className)}
+      icon={map?.icon as IconName}
       iconProps={{ size: iconOnly ? iconSize : 12 }}>
-      {!iconOnly && map.title}
+      {!iconOnly && map?.title}
     </Text>
   )
 }
