@@ -17,6 +17,8 @@ package git
 import (
 	"context"
 	"io"
+
+	"github.com/harness/gitness/git/types"
 )
 
 type Interface interface {
@@ -32,11 +34,11 @@ type Interface interface {
 	GetBranch(ctx context.Context, params *GetBranchParams) (*GetBranchOutput, error)
 	DeleteBranch(ctx context.Context, params *DeleteBranchParams) error
 	ListBranches(ctx context.Context, params *ListBranchesParams) (*ListBranchesOutput, error)
+	UpdateDefaultBranch(ctx context.Context, params *UpdateDefaultBranchParams) error
 	GetRef(ctx context.Context, params GetRefParams) (GetRefResponse, error)
 	PathsDetails(ctx context.Context, params PathsDetailsParams) (PathsDetailsOutput, error)
 
 	GetRepositorySize(ctx context.Context, params *GetRepositorySizeParams) (*GetRepositorySizeOutput, error)
-
 	// UpdateRef creates, updates or deletes a git ref. If the OldValue is defined it must match the reference value
 	// prior to the call. To remove a ref use the zero ref as the NewValue. To require the creation of a new one and
 	// not update of an exiting one, set the zero ref as the OldValue.
@@ -66,8 +68,8 @@ type Interface interface {
 	/*
 	 * Diff services
 	 */
-	RawDiff(ctx context.Context, in *DiffParams, w io.Writer) error
-	Diff(ctx context.Context, in *DiffParams) (<-chan *FileDiff, <-chan error)
+	RawDiff(ctx context.Context, w io.Writer, in *DiffParams, files ...types.FileDiffRequest) error
+	Diff(ctx context.Context, in *DiffParams, files ...types.FileDiffRequest) (<-chan *FileDiff, <-chan error)
 	DiffFileNames(ctx context.Context, in *DiffParams) (DiffFileNamesOutput, error)
 	CommitDiff(ctx context.Context, params *GetCommitParams, w io.Writer) error
 	DiffShortStat(ctx context.Context, params *DiffParams) (DiffShortStatOutput, error)

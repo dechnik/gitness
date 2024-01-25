@@ -156,6 +156,9 @@ type (
 		// FindByRef finds the space using the spaceRef as either the id or the space path.
 		FindByRef(ctx context.Context, spaceRef string) (*types.Space, error)
 
+		// GetRootSpace returns a space where space_parent_id is NULL.
+		GetRootSpace(ctx context.Context, spaceID int64) (*types.Space, error)
+
 		// Create creates a new space
 		Create(ctx context.Context, space *types.Space) error
 
@@ -193,6 +196,9 @@ type (
 		// Update the repo size.
 		UpdateSize(ctx context.Context, repoID int64, repoSize int64) error
 
+		// Get the repo size.
+		GetSize(ctx context.Context, repoID int64) (int64, error)
+
 		// UpdateOptLock the repo details using the optimistic locking mechanism.
 		UpdateOptLock(ctx context.Context, repo *types.Repository,
 			mutateFn func(repository *types.Repository) error) (*types.Repository, error)
@@ -202,6 +208,9 @@ type (
 
 		// Count of repos in a space.
 		Count(ctx context.Context, parentID int64, opts *types.RepoFilter) (int64, error)
+
+		// Count all repos in a hierarchy of spaces.
+		CountAll(ctx context.Context, spaceID int64) (int64, error)
 
 		// List returns a list of repos in a space.
 		List(ctx context.Context, parentID int64, opts *types.RepoFilter) ([]*types.Repository, error)
@@ -464,6 +473,9 @@ type (
 	}
 
 	CheckStore interface {
+		// Find returns status check result for given unique key.
+		Find(ctx context.Context, repoID int64, commitSHA string, uid string) (types.Check, error)
+
 		// Upsert creates new or updates an existing status check result.
 		Upsert(ctx context.Context, check *types.Check) error
 
@@ -655,8 +667,9 @@ type (
 		// Find returns a template given an ID.
 		Find(ctx context.Context, id int64) (*types.Template, error)
 
-		// FindByUID returns a template given a space ID and a UID.
-		FindByUID(ctx context.Context, spaceID int64, uid string) (*types.Template, error)
+		// FindByUIDAndType returns a template given a space ID, UID and a type
+		FindByUIDAndType(ctx context.Context, spaceID int64,
+			uid string, resolverType enum.ResolverType) (*types.Template, error)
 
 		// Create creates a new template.
 		Create(ctx context.Context, template *types.Template) error
@@ -674,8 +687,8 @@ type (
 		// Delete deletes a template given an ID.
 		Delete(ctx context.Context, id int64) error
 
-		// DeleteByUID deletes a template given a space ID and a uid.
-		DeleteByUID(ctx context.Context, spaceID int64, uid string) error
+		// DeleteByUIDAndType deletes a template given a space ID, uid and a type.
+		DeleteByUIDAndType(ctx context.Context, spaceID int64, uid string, resolverType enum.ResolverType) error
 
 		// List lists the templates in a given space.
 		List(ctx context.Context, spaceID int64, filter types.ListQueryFilter) ([]*types.Template, error)

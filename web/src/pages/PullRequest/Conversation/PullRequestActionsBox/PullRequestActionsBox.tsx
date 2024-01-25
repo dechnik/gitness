@@ -57,6 +57,7 @@ import {
   Violation
 } from 'utils/Utils'
 import { UserPreference, useUserPreference } from 'hooks/useUserPreference'
+import { useGetRepositoryMetadata } from 'hooks/useGetRepositoryMetadata'
 import ReviewSplitButton from 'components/Changes/ReviewSplitButton/ReviewSplitButton'
 import RuleViolationAlertModal from 'components/RuleViolationAlertModal/RuleViolationAlertModal'
 import css from './PullRequestActionsBox.module.scss'
@@ -78,6 +79,7 @@ export const PullRequestActionsBox: React.FC<PullRequestActionsBoxProps> = ({
   const { currentUser } = useAppContext()
   const { hooks, standalone } = useAppContext()
   const space = useGetSpaceParam()
+  const { pullRequestSection } = useGetRepositoryMetadata()
   const { mutate: mergePR, loading } = useMutate({
     verb: 'POST',
     path: `/api/v1/repos/${repoMetadata.path}/+/pullreq/${pullRequestMetadata.number}/merge`
@@ -136,8 +138,11 @@ export const PullRequestActionsBox: React.FC<PullRequestActionsBoxProps> = ({
           } else if (
             getErrorMessage(err) === codeOwnersNotFoundMessage ||
             getErrorMessage(err) === codeOwnersNotFoundMessage2 ||
-            getErrorMessage(err) === codeOwnersNotFoundMessage3
+            getErrorMessage(err) === codeOwnersNotFoundMessage3 ||
+            err.status === 423 // resource locked (merge / dry-run already ongoing)
           ) {
+            return
+          } else if (pullRequestSection !== 'conversation') {
             return
           } else {
             showError(getErrorMessage(err))
@@ -419,7 +424,7 @@ export const PullRequestActionsBox: React.FC<PullRequestActionsBoxProps> = ({
                             text={mergeOption.title}
                             disabled={
                               loading ||
-                              unchecked ||
+                              (unchecked && mergeOption.method !== 'close') ||
                               (isConflict && mergeOption.method !== 'close') ||
                               (ruleViolation && !bypass && mergeOption.method !== 'close')
                             }

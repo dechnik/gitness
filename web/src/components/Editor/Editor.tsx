@@ -23,6 +23,7 @@ import type { ViewUpdate } from '@codemirror/view'
 import type { Text } from '@codemirror/state'
 import { languages } from '@codemirror/language-data'
 import { markdown } from '@codemirror/lang-markdown'
+import { java } from '@codemirror/lang-java'
 import { EditorView, keymap, placeholder as placeholderExtension } from '@codemirror/view'
 import { Compartment, EditorState, Extension } from '@codemirror/state'
 import { color } from '@uiw/codemirror-extensions-color'
@@ -79,6 +80,7 @@ export const Editor = React.memo(function CodeMirrorReactEditor({
   const { getString } = useStrings()
   const view = useRef<EditorView>()
   const ref = useRef<HTMLDivElement>()
+  const [fileData, setFile] = useState<File>()
 
   const languageConfig = useMemo(() => new Compartment(), [])
   const [markdownContent, setMarkdownContent] = useState('')
@@ -103,7 +105,7 @@ export const Editor = React.memo(function CodeMirrorReactEditor({
   const updateContentWithoutStateChange = () => {
     setUploading(true)
     if (view.current && markdownContent && !inGitBlame) {
-      const markdownInsert = `![image](${markdownContent})`
+      const markdownInsert = fileData?.type.startsWith('image/') ? `![image](${markdownContent})` : `${markdownContent}`
       const range = view.current.state.selection.main
       const cursorPos = range.from
       const newCursorPos = cursorPos + markdownInsert.length
@@ -204,8 +206,28 @@ export const Editor = React.memo(function CodeMirrorReactEditor({
         })
     }
   }, [filename, forMarkdown, view, languageConfig, markdownLanguageSupport])
+  useEffect(() => {
+    if (filename) {
+      let languageSupport
+      if (
+        filename.endsWith('.tf') ||
+        filename.endsWith('.hcl') ||
+        filename.endsWith('.tfstate') ||
+        filename.endsWith('.tfvars')
+      ) {
+        languageSupport = java()
+      }
+      // Add other file extensions and their corresponding language modes
+      if (languageSupport) {
+        view.current?.dispatch({
+          effects: languageConfig.reconfigure(languageSupport)
+        })
+      }
+    }
+  }, [filename, view, languageConfig, markdownLanguageSupport])
   const handleUploadCallback = (file: File) => {
     if (!inGitBlame) {
+      setFile(file)
       handleUpload(file, setMarkdownContent, repoMetadata, showError, standalone, routingId)
     }
   }

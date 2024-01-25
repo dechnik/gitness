@@ -15,6 +15,7 @@
 package repo
 
 import (
+	"encoding/json"
 	"net/http"
 
 	"github.com/harness/gitness/app/api/controller/repo"
@@ -22,22 +23,30 @@ import (
 	"github.com/harness/gitness/app/api/request"
 )
 
-func HandleImportCancel(repoCtrl *repo.Controller) http.HandlerFunc {
+func HandleUpdateDefaultBranch(repoCtrl *repo.Controller) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx := r.Context()
 		session, _ := request.AuthSessionFrom(ctx)
+
 		repoRef, err := request.GetRepoRefFromPath(r)
 		if err != nil {
 			render.TranslatedUserError(w, err)
 			return
 		}
 
-		err = repoCtrl.ImportCancel(ctx, session, repoRef)
+		in := new(repo.UpdateDefaultBranchInput)
+		err = json.NewDecoder(r.Body).Decode(in)
 		if err != nil {
 			render.TranslatedUserError(w, err)
 			return
 		}
 
-		render.DeleteSuccessful(w)
+		repo, err := repoCtrl.UpdateDefaultBranch(ctx, session, repoRef, in)
+		if err != nil {
+			render.TranslatedUserError(w, err)
+			return
+		}
+
+		render.JSON(w, http.StatusOK, repo)
 	}
 }

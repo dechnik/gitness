@@ -28,7 +28,7 @@ func TestAdapter_GetMergeBase(t *testing.T) {
 
 	baseBranch := "main"
 	// write file to main branch
-	parentSHA := writeFile(t, repo, "file1.txt", "some content", nil)
+	_, parentSHA := writeFile(t, repo, "file1.txt", "some content", nil)
 
 	err := repo.SetReference("refs/heads/"+baseBranch, parentSHA.String())
 	if err != nil {
@@ -50,7 +50,7 @@ func TestAdapter_GetMergeBase(t *testing.T) {
 	}
 
 	// write file to main branch
-	sha := writeFile(t, repo, "file1.txt", "new content", []string{parentSHA.String()})
+	_, sha := writeFile(t, repo, "file1.txt", "new content", []string{parentSHA.String()})
 
 	err = repo.SetReference("refs/heads/"+headBranch, sha.String())
 	if err != nil {

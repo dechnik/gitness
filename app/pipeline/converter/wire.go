@@ -12,24 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package plugin
+package converter
 
 import (
-	"github.com/harness/gitness/app/store"
-	"github.com/harness/gitness/types"
+	"github.com/harness/gitness/app/pipeline/file"
 
 	"github.com/google/wire"
 )
 
 // WireSet provides a wire set for this package.
 var WireSet = wire.NewSet(
-	ProvidePluginManager,
+	ProvideService,
 )
 
-// ProvidePluginManager provides an execution runner.
-func ProvidePluginManager(
-	config *types.Config,
-	pluginStore store.PluginStore,
-) *Manager {
-	return NewManager(config, pluginStore)
+// ProvideService provides a service which can convert templates.
+func ProvideService(fileService file.Service) Service {
+	return newConverter(fileService)
 }

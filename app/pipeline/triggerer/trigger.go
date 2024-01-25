@@ -22,8 +22,10 @@ import (
 	"time"
 
 	"github.com/harness/gitness/app/pipeline/checks"
+	"github.com/harness/gitness/app/pipeline/converter"
 	"github.com/harness/gitness/app/pipeline/file"
 	"github.com/harness/gitness/app/pipeline/manager"
+	"github.com/harness/gitness/app/pipeline/resolver"
 	"github.com/harness/gitness/app/pipeline/scheduler"
 	"github.com/harness/gitness/app/pipeline/triggerer/dag"
 	"github.com/harness/gitness/app/store"
@@ -38,6 +40,7 @@ import (
 	"github.com/drone/drone-yaml/yaml/linter"
 	v1yaml "github.com/drone/spec/dist/go"
 	"github.com/drone/spec/dist/go/parse/normalize"
+	specresolver "github.com/drone/spec/dist/go/parse/resolver"
 	"github.com/rs/zerolog/log"
 )
 
@@ -77,15 +80,18 @@ type Triggerer interface {
 }
 
 type triggerer struct {
-	executionStore store.ExecutionStore
-	checkStore     store.CheckStore
-	stageStore     store.StageStore
-	tx             dbtx.Transactor
-	pipelineStore  store.PipelineStore
-	fileService    file.Service
-	urlProvider    url.Provider
-	scheduler      scheduler.Scheduler
-	repoStore      store.RepoStore
+	executionStore   store.ExecutionStore
+	checkStore       store.CheckStore
+	stageStore       store.StageStore
+	tx               dbtx.Transactor
+	pipelineStore    store.PipelineStore
+	fileService      file.Service
+	converterService converter.Service
+	urlProvider      url.Provider
+	scheduler        scheduler.Scheduler
+	repoStore        store.RepoStore
+	templateStore    store.TemplateStore
+	pluginStore      store.PluginStore
 }
 
 func New(
@@ -98,17 +104,23 @@ func New(
 	urlProvider url.Provider,
 	scheduler scheduler.Scheduler,
 	fileService file.Service,
+	converterService converter.Service,
+	templateStore store.TemplateStore,
+	pluginStore store.PluginStore,
 ) Triggerer {
 	return &triggerer{
-		executionStore: executionStore,
-		checkStore:     checkStore,
-		stageStore:     stageStore,
-		scheduler:      scheduler,
-		urlProvider:    urlProvider,
-		tx:             tx,
-		pipelineStore:  pipelineStore,
-		fileService:    fileService,
-		repoStore:      repoStore,
+		executionStore:   executionStore,
+		checkStore:       checkStore,
+		stageStore:       stageStore,
+		scheduler:        scheduler,
+		urlProvider:      urlProvider,
+		tx:               tx,
+		pipelineStore:    pipelineStore,
+		fileService:      fileService,
+		converterService: converterService,
+		repoStore:        repoStore,
+		templateStore:    templateStore,
+		pluginStore:      pluginStore,
 	}
 }
 
@@ -186,6 +198,19 @@ func (t *triggerer) Trigger(
 	stages := []*types.Stage{}
 	//nolint:nestif // refactor if needed
 	if !isV1Yaml(file.Data) {
+		// Convert from jsonnet/starlark to drone yaml
+		args := &converter.ConvertArgs{
+			Repo:      repo,
+			Pipeline:  pipeline,
+			Execution: execution,
+			File:      file,
+		}
+		file, err = t.converterService.Convert(ctx, args)
+		if err != nil {
+			log.Warn().Err(err).Msg("trigger: cannot convert from template")
+			return t.createExecutionWithError(ctx, pipeline, base, err.Error())
+		}
+
 		manifest, err := yaml.ParseString(string(file.Data))
 		if err != nil {
 			log.Warn().Err(err).Msg("trigger: cannot parse yaml")
@@ -305,7 +330,8 @@ func (t *triggerer) Trigger(
 			}
 		}
 	} else {
-		stages, err = parseV1Stages(file.Data, repo, execution)
+		stages, err = parseV1Stages(
+			ctx, file.Data, repo, execution, t.templateStore, t.pluginStore)
 		if err != nil {
 			return nil, fmt.Errorf("could not parse v1 YAML into stages: %w", err)
 		}
@@ -362,7 +388,14 @@ func trunc(s string, i int) string {
 // Once we have depends on in v1, this will be changed to use the DAG.
 //
 //nolint:gocognit // refactor if needed.
-func parseV1Stages(data []byte, repo *types.Repository, execution *types.Execution) ([]*types.Stage, error) {
+func parseV1Stages(
+	ctx context.Context,
+	data []byte,
+	repo *types.Repository,
+	execution *types.Execution,
+	templateStore store.TemplateStore,
+	pluginStore store.PluginStore,
+) ([]*types.Stage, error) {
 	stages := []*types.Stage{}
 	// For V1 YAML, just go through the YAML and create stages serially for now
 	config, err := v1yaml.ParseBytes(data)
@@ -385,6 +418,16 @@ func parseV1Stages(data []byte, repo *types.Repository, execution *types.Executi
 	inputParams["build"] = inputs.Build(manager.ConvertToDroneBuild(execution))
 
 	var prevStage string
+
+	// expand stage level templates and plugins
+	lookupFunc := func(name, kind, typ, version string) (*v1yaml.Config, error) {
+		f := resolver.Resolve(ctx, pluginStore, templateStore, repo.ParentID)
+		return f(name, kind, typ, version)
+	}
+
+	if err := specresolver.Resolve(config, lookupFunc); err != nil {
+		return nil, fmt.Errorf("could not resolve yaml plugins/templates: %w", err)
+	}
 
 	switch v := config.Spec.(type) {
 	case *v1yaml.Pipeline:
@@ -431,7 +474,7 @@ func parseV1Stages(data []byte, repo *types.Repository, execution *types.Executi
 				prevStage = temp.Name
 				stages = append(stages, temp)
 			default:
-				return nil, fmt.Errorf("only CI stage supported in v1 at the moment")
+				return nil, fmt.Errorf("only CI and template stages are supported in v1 at the moment")
 			}
 		}
 	default:

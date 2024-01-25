@@ -13,7 +13,7 @@ require (
 	github.com/bmatcuk/doublestar/v4 v4.6.0
 	github.com/coreos/go-semver v0.3.0
 	github.com/dchest/uniuri v0.0.0-20200228104902-7aecb25e1fe5
-	github.com/drone-runners/drone-runner-docker v1.8.4-0.20231106161015-8c0240291f1d
+	github.com/drone-runners/drone-runner-docker v1.8.4-0.20240109154718-47375e234554
 	github.com/drone/drone-go v1.7.1
 	github.com/drone/drone-yaml v1.2.3
 	github.com/drone/funcmap v0.0.0-20190918184546-d4ef6e88376d
@@ -22,12 +22,14 @@ require (
 	github.com/drone/go-scm v1.31.2
 	github.com/drone/runner-go v1.12.0
 	github.com/drone/spec v0.0.0-20230919004456-7455b8913ff5
+	github.com/gabriel-vasile/mimetype v1.4.3
 	github.com/go-chi/chi v1.5.4
 	github.com/go-chi/cors v1.2.1
 	github.com/go-redis/redis/v8 v8.11.5
 	github.com/go-redsync/redsync/v4 v4.7.1
 	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/google/go-cmp v0.5.9
+	github.com/google/go-jsonnet v0.20.0
 	github.com/google/uuid v1.3.1
 	github.com/google/wire v0.5.0
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75
@@ -47,15 +49,18 @@ require (
 	github.com/rs/xid v1.4.0
 	github.com/rs/zerolog v1.29.0
 	github.com/sercand/kuberesolver/v5 v5.1.0
+	github.com/sirupsen/logrus v1.9.0
 	github.com/stretchr/testify v1.8.4
 	github.com/swaggest/openapi-go v0.2.23
 	github.com/swaggest/swgui v1.4.2
 	github.com/unrolled/secure v1.0.8
+	go.starlark.net v0.0.0-20231121155337-90ade8b19d09
 	go.uber.org/multierr v1.8.0
-	golang.org/x/crypto v0.13.0
+	golang.org/x/crypto v0.14.0
 	golang.org/x/exp v0.0.0-20230108222341-4b8118a2686a
+	golang.org/x/oauth2 v0.10.0
 	golang.org/x/sync v0.3.0
-	golang.org/x/term v0.12.0
+	golang.org/x/term v0.13.0
 	golang.org/x/text v0.13.0
 	google.golang.org/api v0.132.0
 	gopkg.in/alecthomas/kingpin.v2 v2.2.6
@@ -184,7 +189,6 @@ require (
 	github.com/rivo/uniseg v0.2.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.0.0 // indirect
-	github.com/sirupsen/logrus v1.9.0 // indirect
 	github.com/skeema/knownhosts v1.2.0 // indirect
 	github.com/soheilhy/cmux v0.1.5 // indirect
 	github.com/spf13/cobra v1.3.0 // indirect
@@ -213,7 +217,6 @@ require (
 	go.etcd.io/etcd/v3 v3.5.0-alpha.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.uber.org/zap v1.21.0 // indirect
-	golang.org/x/oauth2 v0.10.0 // indirect
 	golang.org/x/time v0.0.0-20220411224347-583f2d630306 // indirect
 	golang.org/x/xerrors v0.0.0-20220907171357-04be3eba64a2 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
@@ -252,8 +255,8 @@ require (
 	github.com/go-enry/go-enry/v2 v2.8.2 // indirect
 	github.com/go-enry/go-oniguruma v1.2.1 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
-	github.com/go-git/go-billy/v5 v5.5.0
-	github.com/go-git/go-git/v5 v5.9.0
+	github.com/go-git/go-billy/v5 v5.5.0 // indirect
+	github.com/go-git/go-git/v5 v5.9.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/golang-jwt/jwt/v4 v4.4.1 // indirect
 	github.com/golang/protobuf v1.5.3 // indirect
@@ -278,8 +281,8 @@ require (
 	github.com/yuin/goldmark v1.4.13 // indirect
 	go.uber.org/atomic v1.10.0 // indirect
 	golang.org/x/mod v0.12.0 // indirect
-	golang.org/x/net v0.15.0 // indirect
-	golang.org/x/sys v0.12.0 // indirect
+	golang.org/x/net v0.17.0 // indirect
+	golang.org/x/sys v0.13.0 // indirect
 	golang.org/x/tools v0.13.0 // indirect
 	google.golang.org/genproto v0.0.0-20230706204954-ccb25ca9f130 // indirect
 	gopkg.in/ini.v1 v1.66.4 // indirect

@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/harness/gitness/errors"
+	"github.com/harness/gitness/git/check"
 	"github.com/harness/gitness/git/hash"
 	"github.com/harness/gitness/git/types"
 
@@ -44,6 +45,8 @@ const (
 	gitReferenceNamePrefixTag    = "refs/tags/"
 
 	gitHooksDir = "hooks"
+
+	fileMode700 = 0o700
 )
 
 var (
@@ -129,6 +132,11 @@ func (p *HashRepositoryParams) Validate() error {
 
 type HashRepositoryOutput struct {
 	Hash []byte
+}
+type UpdateDefaultBranchParams struct {
+	WriteParams
+	// BranchName is the name of the branch
+	BranchName string
 }
 
 func (s *Service) CreateRepository(
@@ -217,6 +225,12 @@ func (s *Service) DeleteRepositoryBestEffort(ctx context.Context, repoUID string
 	repoPath := getFullPathForRepo(s.reposRoot, repoUID)
 	tempPath := path.Join(s.reposGraveyard, repoUID)
 
+	// delete should not fail if repoGraveyard dir does not exist
+	if _, err := os.Stat(s.reposGraveyard); os.IsNotExist(err) {
+		if errdir := os.MkdirAll(s.reposGraveyard, fileMode700); errdir != nil {
+			return fmt.Errorf("clean up dir '%s' doesn't exist and can't be created: %w", s.reposGraveyard, errdir)
+		}
+	}
 	// move current dir to a temp dir (prevent partial deletion)
 	if err := os.Rename(repoPath, tempPath); err != nil {
 		return fmt.Errorf("couldn't move dir %s to %s : %w", repoPath, tempPath, err)
@@ -241,12 +255,12 @@ func (s *Service) SyncRepository(
 	// create repo if requested
 	_, err := os.Stat(repoPath)
 	if err != nil && !os.IsNotExist(err) {
-		return nil, errors.Internal("failed to create repo: %w", err)
+		return nil, errors.Internal(err, "failed to create repository")
 	}
 
 	if os.IsNotExist(err) {
 		if !params.CreateIfNotExists {
-			return nil, errors.NotFound("repo not found")
+			return nil, errors.NotFound("repository not found")
 		}
 
 		// the default branch doesn't matter for a sync,
@@ -445,7 +459,7 @@ func (s *Service) createRepositoryInternal(
 			break
 		}
 		if err != nil {
-			return errors.Internal("failed to receive file: %v", err)
+			return errors.Internal(err, "failed to receive file %s", file)
 		}
 
 		filePaths = append(filePaths, filePath)
@@ -481,8 +495,8 @@ func (s *Service) createRepositoryInternal(
 		hookPath := path.Join(repoPath, gitHooksDir, hook)
 		err = os.Symlink(s.gitHookPath, hookPath)
 		if err != nil {
-			return errors.Internal("failed to setup symlink for hook '%s' ('%s' -> '%s'): %s",
-				hook, hookPath, s.gitHookPath, err)
+			return errors.Internal(err, "failed to setup symlink for hook '%s' ('%s' -> '%s')",
+				hook, hookPath, s.gitHookPath)
 		}
 	}
 
@@ -504,6 +518,28 @@ func (s *Service) GetRepositorySize(
 	return &GetRepositorySizeOutput{
 		Size: count.Size + count.SizePack,
 	}, nil
+}
+
+// UpdateDefaultBranch updates the default barnch of the repo.
+func (s *Service) UpdateDefaultBranch(
+	ctx context.Context,
+	params *UpdateDefaultBranchParams,
+) error {
+	if err := params.Validate(); err != nil {
+		return err
+	}
+	if err := check.BranchName(params.BranchName); err != nil {
+		return errors.InvalidArgument(err.Error())
+	}
+
+	repoPath := getFullPathForRepo(s.reposRoot, params.RepoUID)
+
+	err := s.adapter.SetDefaultBranch(ctx, repoPath, params.BranchName, false)
+	if err != nil {
+		return fmt.Errorf("UpdateDefaultBranch: failed to update repo default branch %q: %w",
+			params.BranchName, err)
+	}
+	return nil
 }
 
 // isValidGitSHA returns true iff the provided string is a valid git sha (short or long form).

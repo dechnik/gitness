@@ -258,7 +258,7 @@ export const handlePaste = (event: { preventDefault: () => void; clipboardData: 
 
   if (items.length > 0) {
     const firstItem = items[0]
-    if (firstItem.type.startsWith('image/')) {
+    if (firstItem.type.startsWith('image/') || firstItem.type.startsWith('video/')) {
       const blob = firstItem.getAsFile()
       callback(blob)
     }
@@ -407,6 +407,7 @@ const MONACO_SUPPORTED_LANGUAGES = [
   'go',
   'graphql',
   'handlebars',
+  'hcl',
   'html',
   'ini',
   'java',
@@ -468,7 +469,10 @@ const EXTENSION_TO_LANG: Record<string, string> = {
   makefile: 'shell',
   toml: 'ini',
   tsx: 'typescript',
-  workspace: 'python'
+  tf: 'hcl',
+  tfvars: 'hcl',
+  workspace: 'python',
+  tfstate: 'hcl'
 }
 
 export const PLAIN_TEXT = 'plaintext'

@@ -87,7 +87,7 @@ type APIHandler interface {
 var (
 	// terminatedPathPrefixesAPI is the list of prefixes that will require resolving terminated paths.
 	terminatedPathPrefixesAPI = []string{"/v1/spaces/", "/v1/repos/",
-		"/v1/secrets/", "/v1/connectors", "/v1/templates"}
+		"/v1/secrets/", "/v1/connectors", "/v1/templates/step", "/v1/templates/stage"}
 )
 
 // NewAPIHandler returns a new APIHandler.
@@ -267,6 +267,8 @@ func setupRepos(r chi.Router,
 
 			r.Get("/import-progress", handlerrepo.HandleImportProgress(repoCtrl))
 
+			r.Post("/default-branch", handlerrepo.HandleUpdateDefaultBranch(repoCtrl))
+
 			// content operations
 			// NOTE: this allows /content and /content/ to both be valid (without any other tricks.)
 			// We don't expect there to be any other operations in that route (as that could overlap with file names)
@@ -318,6 +320,7 @@ func setupRepos(r chi.Router,
 			// diffs
 			r.Route("/diff", func(r chi.Router) {
 				r.Get("/*", handlerrepo.HandleDiff(repoCtrl))
+				r.Post("/*", handlerrepo.HandleDiff(repoCtrl))
 			})
 			r.Route("/diff-stats", func(r chi.Router) {
 				r.Get("/*", handlerrepo.HandleDiffStats(repoCtrl))
@@ -394,11 +397,12 @@ func setupTemplates(
 	r.Route("/templates", func(r chi.Router) {
 		// Create takes path and parentId via body, not uri
 		r.Post("/", handlertemplate.HandleCreate(templateCtrl))
-		r.Route(fmt.Sprintf("/{%s}", request.PathParamTemplateRef), func(r chi.Router) {
-			r.Get("/", handlertemplate.HandleFind(templateCtrl))
-			r.Patch("/", handlertemplate.HandleUpdate(templateCtrl))
-			r.Delete("/", handlertemplate.HandleDelete(templateCtrl))
-		})
+		r.Route(fmt.Sprintf("/{%s}/{%s}", request.PathParamTemplateType, request.PathParamTemplateRef),
+			func(r chi.Router) {
+				r.Get("/", handlertemplate.HandleFind(templateCtrl))
+				r.Patch("/", handlertemplate.HandleUpdate(templateCtrl))
+				r.Delete("/", handlertemplate.HandleDelete(templateCtrl))
+			})
 	})
 }
 
@@ -515,6 +519,7 @@ func SetupPullReq(r chi.Router, pullreqCtrl *pullreq.Controller) {
 			})
 			r.Get("/codeowners", handlerpullreq.HandleCodeOwner(pullreqCtrl))
 			r.Get("/diff", handlerpullreq.HandleDiff(pullreqCtrl))
+			r.Post("/diff", handlerpullreq.HandleDiff(pullreqCtrl))
 		})
 	})
 }
