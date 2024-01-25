@@ -44,6 +44,7 @@ in {
         GITNESS_ENCRYPTER_SECRET = "";
         GITNESS_GRACEFUL_SHUTDOWN_TIME = "300s";
         GITNESS_PRINCIPAL_ADMIN_PASSWORD = "password";
+        GITNESS_PRINCIPAL_ADMIN_EMAIL = "admin@example.com";
         GITNESS_TOKEN_COOKIE_NAME = "token";
         GITNESS_TOKEN_EXPIRE = "720h";
         GITNESS_TRACE = "false";
