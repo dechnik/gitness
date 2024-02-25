@@ -142,7 +142,7 @@ export interface SourceCodeEditorProps {
   editorOptions?: editor.IStandaloneEditorConstructionOptions
 }
 
-export interface PullRequestActionsBoxProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullRequestMetadata'> {
+export interface PullRequestActionsBoxProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullReqMetadata'> {
   onPRStateChanged: () => void
   refetchReviewers: () => void
 }
@@ -356,7 +356,9 @@ export const rulesFormInitialPayload = {
   autoDelete: false,
   blockBranchCreation: false,
   blockBranchDeletion: false,
-  requirePr: false
+  requirePr: false,
+  bypassSet: false,
+  targetSet: false
 }
 
 /**
@@ -494,14 +496,26 @@ export const filenameToLanguage = (name?: string): string | undefined => {
   return PLAIN_TEXT
 }
 
-export function waitUntil(condition: () => boolean, callback: () => void, maxCount = 100, timeout = 50) {
-  if (condition()) {
-    callback()
+interface WaitUtilParams<T> {
+  test: () => T
+  onMatched: (result: T) => void
+  onExpired?: () => void
+  duration?: number
+  interval?: number
+}
+
+export function waitUntil<T>({ test, onMatched, onExpired, duration = 5000, interval = 50 }: WaitUtilParams<T>) {
+  const result = test()
+
+  if (result) {
+    onMatched(result)
   } else {
-    if (maxCount) {
+    if (duration > 0) {
       setTimeout(() => {
-        waitUntil(condition, callback, maxCount - 1)
-      }, timeout)
+        waitUntil({ test, onMatched, onExpired, duration: duration - interval, interval })
+      }, interval)
+    } else {
+      onExpired?.()
     }
   }
 }
@@ -548,14 +562,27 @@ export enum PullRequestCheckType {
   PIPELINE = 'pipeline'
 }
 
-export function isInViewport(element: Element) {
+/**
+ * Test if an element is close to viewport. Used to determine a progressive
+ * pre-rendering before the element being scrolled to viewport.
+ */
+export function isInViewport(element: Element, margin = 0, direction: 'x' | 'y' | 'xy' = 'y') {
   const rect = element.getBoundingClientRect()
-  return (
-    rect.top >= 0 &&
-    rect.left >= 0 &&
-    rect.bottom <= (window.innerHeight || document.documentElement.clientHeight) &&
-    rect.right <= (window.innerWidth || document.documentElement.clientWidth)
-  )
+
+  const height = window.innerHeight || document.documentElement.clientHeight
+  const width = window.innerWidth || document.documentElement.clientWidth
+  const top = 0 - margin
+  const bottom = height + margin
+  const left = 0 - margin
+  const right = width + margin
+
+  const yCheck = (rect.top >= top && rect.top <= bottom) || (rect.bottom >= top && rect.bottom <= bottom)
+  const xCheck = (rect.left >= left && rect.left <= right) || (rect.right >= top && rect.right <= right)
+
+  if (direction === 'y') return yCheck
+  if (direction === 'x') return xCheck
+
+  return yCheck || xCheck
 }
 
 export const truncateString = (str: string, length: number): string =>
@@ -589,3 +616,9 @@ export const getAllKeysWithPrefix = (obj: { [key: string]: string | boolean | ob
   }
   return keys
 }
+
+export const CustomEventName = {
+  SIDE_NAV_EXPANDED_EVENT: 'SIDE_NAV_EXPANDED_EVENT'
+} as const
+
+export const PAGE_CONTAINER_WIDTH = '--page-container-width'

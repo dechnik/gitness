@@ -21,6 +21,8 @@ import (
 
 	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git/types"
+
+	"github.com/rs/zerolog/log"
 )
 
 type GetCommitParams struct {
@@ -30,11 +32,14 @@ type GetCommitParams struct {
 }
 
 type Commit struct {
-	SHA       string    `json:"sha"`
-	Title     string    `json:"title"`
-	Message   string    `json:"message,omitempty"`
-	Author    Signature `json:"author"`
-	Committer Signature `json:"committer"`
+	SHA        string          `json:"sha"`
+	ParentSHAs []string        `json:"parent_shas,omitempty"`
+	Title      string          `json:"title"`
+	Message    string          `json:"message,omitempty"`
+	Author     Signature       `json:"author"`
+	Committer  Signature       `json:"committer"`
+	FileStats  CommitFileStats `json:"file_stats,omitempty"`
+	DiffStats  CommitDiffStats `json:"diff_stats,omitempty"`
 }
 
 type GetCommitOutput struct {
@@ -105,6 +110,9 @@ type ListCommitsParams struct {
 
 	// Committer allows to filter for commits based on the committer - Optional, ignored if string is empty.
 	Committer string
+
+	// IncludeFileStats allows you to include information about files changed, added and modified.
+	IncludeFileStats bool
 }
 
 type RenameDetails struct {
@@ -120,6 +128,12 @@ type ListCommitsOutput struct {
 	TotalCommits  int
 }
 
+type CommitFileStats struct {
+	Added    []string
+	Modified []string
+	Removed  []string
+}
+
 func (s *Service) ListCommits(ctx context.Context, params *ListCommitsParams) (*ListCommitsOutput, error) {
 	if params == nil {
 		return nil, ErrNoParamsProvided
@@ -133,6 +147,7 @@ func (s *Service) ListCommits(ctx context.Context, params *ListCommitsParams) (*
 		params.GitREF,
 		int(params.Page),
 		int(params.Limit),
+		params.IncludeFileStats,
 		types.CommitFilter{
 			AfterRef:  params.After,
 			Path:      params.Path,
@@ -167,6 +182,20 @@ func (s *Service) ListCommits(ctx context.Context, params *ListCommitsParams) (*
 		if err != nil {
 			return nil, fmt.Errorf("failed to map rpc commit: %w", err)
 		}
+
+		stat, err := s.CommitShortStat(ctx, &CommitShortStatParams{
+			Path: repoPath,
+			Ref:  commit.SHA,
+		})
+		if err != nil {
+			log.Warn().Msgf("failed to get diff stats: %s", err)
+		}
+		commit.DiffStats = CommitDiffStats{
+			Additions: stat.Additions,
+			Deletions: stat.Deletions,
+			Total:     stat.Additions + stat.Deletions,
+		}
+
 		commits[i] = *commit
 	}
 

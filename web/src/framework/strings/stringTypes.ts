@@ -3,6 +3,7 @@
  * Use the command `yarn strings` to regenerate this file.
  */
 export interface StringsMap {
+  AIDA: string
   Enable: string
   accessControl: string
   accountEmail: string
@@ -31,12 +32,14 @@ export interface StringsMap {
   approved: string
   ascending: string
   assignPeople: string
+  at: string
   attachText: string
   basedOn: string
   blame: string
   blameCommitLine: string
   blameEmpty: string
   botAlerts: string
+  bottom: string
   branch: string
   branchCreated: string
   branchDeleted: string
@@ -156,6 +159,7 @@ export interface StringsMap {
   commitToNewBranch: string
   commits: string
   commitsOn: string
+  committed: string
   compare: string
   compareEmptyDiffMessage: string
   compareEmptyDiffTitle: string
@@ -203,6 +207,11 @@ export interface StringsMap {
   createWebhook: string
   created: string
   creationDate: string
+  customDay: string
+  customHour: string
+  customMin: string
+  customSecond: string
+  customTime: string
   dangerDeleteRepo: string
   defaultBranch: string
   defaultBranchTitle: string
@@ -243,6 +252,7 @@ export interface StringsMap {
   emptyRepoHeader: string
   emptyRepoInclude: string
   emptySpaceText: string
+  enableAISearch: string
   enableSSLVerification: string
   enableWebhookContent: string
   enableWebhookTitle: string
@@ -286,6 +296,7 @@ export interface StringsMap {
   'exportSpace.exportCompleted': string
   'exportSpace.exportRepo': string
   'exportSpace.exportRepoCompleted': string
+  'exportSpace.harness': string
   'exportSpace.newProject': string
   'exportSpace.organization': string
   'exportSpace.projectName': string
@@ -393,6 +404,11 @@ export interface StringsMap {
   inactiveBranches: string
   isRequired: string
   key: string
+  'keywordSearch.sampleQueries.searchForClass': string
+  'keywordSearch.sampleQueries.searchForFilesWithCMD': string
+  'keywordSearch.sampleQueries.searchForInitialCommit': string
+  'keywordSearch.sampleQueries.searchForPattern': string
+  keywordSearchPlaceholder: string
   killed: string
   language: string
   leaveAComment: string
@@ -475,10 +491,9 @@ export interface StringsMap {
   'pageTitle.accessControl': string
   'pageTitle.branches': string
   'pageTitle.changePassword': string
-  'pageTitle.commits': string
   'pageTitle.compare': string
   'pageTitle.createWebhook': string
-  'pageTitle.editFile': string
+  'pageTitle.editFileLocation': string
   'pageTitle.executions': string
   'pageTitle.home': string
   'pageTitle.pipelines': string
@@ -495,7 +510,6 @@ export interface StringsMap {
   'pageTitle.tags': string
   'pageTitle.userProfile': string
   'pageTitle.users': string
-  'pageTitle.webhookDetail': string
   'pageTitle.webhooks': string
   password: string
   passwordApi: string
@@ -572,10 +586,13 @@ export interface StringsMap {
   'pr.checks': string
   'pr.checksFailure': string
   'pr.createDraftPR': string
+  'pr.descHasTooLongLine': string
   'pr.descIsRequired': string
+  'pr.descIsTooLong': string
   'pr.descriptionPlaceHolder': string
   'pr.diffStatsLabel': string
   'pr.diffStatus': string
+  'pr.diffTooLarge': string
   'pr.diffView': string
   'pr.draftOpenForReview.desc': string
   'pr.draftOpenForReview.title': string
@@ -587,6 +604,7 @@ export interface StringsMap {
   'pr.failedToUpdate': string
   'pr.failedToUpdateCommentStatus': string
   'pr.failedToUpdateTitle': string
+  'pr.fileBinary': string
   'pr.fileDeleted': string
   'pr.fileUnchanged': string
   'pr.mergeOptions.close': string
@@ -691,6 +709,7 @@ export interface StringsMap {
   'repos.updated': string
   repositories: string
   repositoryName: string
+  reqChanges: string
   requestChanges: string
   required: string
   resetZoom: string
@@ -740,6 +759,7 @@ export interface StringsMap {
   selectStatuses: string
   selectToViewMore: string
   selectUsers: string
+  'semanticSearch.sampleQueries': string
   setAsAdmin: string
   setting: string
   settings: string
@@ -792,6 +812,7 @@ export interface StringsMap {
   title: string
   token: string
   tooltipRepoEdit: string
+  top: string
   'triggers.actions': string
   'triggers.createSuccess': string
   'triggers.createTrigger': string

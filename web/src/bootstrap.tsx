@@ -19,6 +19,7 @@ import ReactDOM from 'react-dom'
 import { noop } from 'lodash-es'
 import { routes } from 'RouteDefinitions'
 import { defaultCurrentUser } from 'AppContext'
+import { useFeatureFlags } from 'hooks/useFeatureFlag'
 import App from './App'
 import './bootstrap.scss'
 
@@ -35,7 +36,9 @@ ReactDOM.render(
     hooks={{
       usePermissionTranslate: noop,
       useExecutionDataHook: noop,
-      useLogsContentHook: noop
+      useLogsContent: noop,
+      useLogsStreaming: noop,
+      useFeatureFlags: useFeatureFlags
     }}
     currentUser={defaultCurrentUser}
     currentUserProfileURL=""

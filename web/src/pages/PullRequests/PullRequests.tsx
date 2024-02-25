@@ -22,7 +22,7 @@ import { useHistory } from 'react-router-dom'
 import { useGet } from 'restful-react'
 import type { CellProps, Column } from 'react-table'
 import { Case, Match, Render, Truthy } from 'react-jsx-match'
-import ReactTimeago from 'react-timeago'
+import { defaultTo } from 'lodash-es'
 import { makeDiffRefs, PullRequestFilterOption } from 'utils/GitUtils'
 import { useAppContext } from 'AppContext'
 import { useGetRepositoryMetadata } from 'hooks/useGetRepositoryMetadata'
@@ -35,13 +35,13 @@ import { useUpdateQueryParams } from 'hooks/useUpdateQueryParams'
 import { useQueryParams } from 'hooks/useQueryParams'
 import type { TypesPullReq, TypesRepository } from 'services/code'
 import { ResourceListingPagination } from 'components/ResourceListingPagination/ResourceListingPagination'
-import { UserPreference, useUserPreference } from 'hooks/useUserPreference'
 import { NoResultCard } from 'components/NoResultCard/NoResultCard'
 import { PipeSeparator } from 'components/PipeSeparator/PipeSeparator'
 import { GitRefLink } from 'components/GitRefLink/GitRefLink'
 import { PullRequestStateLabel } from 'components/PullRequestStateLabel/PullRequestStateLabel'
 import { LoadingSpinner } from 'components/LoadingSpinner/LoadingSpinner'
 import useSpaceSSE from 'hooks/useSpaceSSE'
+import { TimePopoverWithLocal } from 'utils/timePopoverLocal/TimePopoverWithLocal'
 import { PullRequestsContentHeader } from './PullRequestsContentHeader/PullRequestsContentHeader'
 import css from './PullRequests.module.scss'
 
@@ -51,11 +51,8 @@ export default function PullRequests() {
   const { getString } = useStrings()
   const history = useHistory()
   const { routes } = useAppContext()
-  const [searchTerm, setSearchTerm] = useState('')
-  const [filter, setFilter] = useUserPreference<string>(
-    UserPreference.PULL_REQUESTS_FILTER_SELECTED_OPTIONS,
-    PullRequestFilterOption.OPEN
-  )
+  const [searchTerm, setSearchTerm] = useState<string | undefined>()
+  const [filter, setFilter] = useState(PullRequestFilterOption.OPEN as string)
   const [authorFilter, setAuthorFilter] = useState<string>()
   const space = useGetSpaceParam()
   const { updateQueryParams } = useUpdateQueryParams()
@@ -158,12 +155,16 @@ export default function PullRequests() {
                             number: <Text inline>{row.original.number}</Text>,
                             time: (
                               <strong>
-                                <ReactTimeago
-                                  date={
+                                <TimePopoverWithLocal
+                                  time={defaultTo(
                                     (row.original.state == 'merged'
                                       ? row.original.merged
-                                      : row.original.created) as number
-                                  }
+                                      : row.original.created) as number,
+                                    0
+                                  )}
+                                  inline={false}
+                                  font={{ variation: FontVariation.SMALL_BOLD }}
+                                  color={Color.GREY_500}
                                 />
                               </strong>
                             ),
@@ -218,12 +219,12 @@ export default function PullRequests() {
         dataTooltipId="repositoryPullRequests"
       />
       <PageBody error={getErrorMessage(error || prError)} retryOnError={voidFn(refetch)}>
-        <LoadingSpinner visible={loading} />
+        <LoadingSpinner visible={loading || (prLoading && !searchTerm)} withBorder={!searchTerm} />
 
         <Render when={repoMetadata}>
           <Layout.Vertical>
             <PullRequestsContentHeader
-              loading={prLoading}
+              loading={prLoading && searchTerm !== undefined}
               repoMetadata={repoMetadata as TypesRepository}
               activePullRequestFilterOption={filter}
               onPullRequestFilterChanged={_filter => {

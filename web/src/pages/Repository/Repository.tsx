@@ -14,17 +14,18 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { Container, Layout, PageBody, StringSubstitute, Text } from '@harnessio/uicore'
 import { Falsy, Match, Truthy } from 'react-jsx-match'
 import cx from 'classnames'
 import { useGetResourceContent } from 'hooks/useGetResourceContent'
-import { voidFn, getErrorMessage } from 'utils/Utils'
+import { getErrorMessage } from 'utils/Utils'
 import { useGetRepositoryMetadata } from 'hooks/useGetRepositoryMetadata'
 import { LoadingSpinner } from 'components/LoadingSpinner/LoadingSpinner'
 import { useStrings } from 'framework/strings'
 import type { OpenapiGetContentOutput, TypesRepository } from 'services/code'
 import { Images } from 'images'
+import { useSetPageContainerWidthVar } from 'hooks/useSetPageContainerWidthVar'
 import { normalizeGitRef, isDir } from 'utils/GitUtils'
 import { RepositoryContent } from './RepositoryContent/RepositoryContent'
 import { RepositoryHeader } from './RepositoryHeader/RepositoryHeader'
@@ -38,7 +39,8 @@ export default function Repository() {
     data: resourceContent,
     error: resourceError,
     loading: resourceLoading,
-    isRepositoryEmpty
+    isRepositoryEmpty,
+    refetch: refetchContent
   } = useGetResourceContent({
     repoMetadata,
     gitRef: normalizeGitRef(gitRef) as string,
@@ -47,11 +49,13 @@ export default function Repository() {
   })
   const [fileNotExist, setFileNotExist] = useState(false)
   const { getString } = useStrings()
+  const domRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => setFileNotExist(resourceError?.status === 404), [resourceError])
+  useSetPageContainerWidthVar({ domRef })
 
   return (
-    <Container className={cx(css.main, !!resourceContent && css.withFileViewer)}>
+    <Container className={cx(css.main, !!resourceContent && css.withFileViewer)} ref={domRef}>
       <Match expr={fileNotExist}>
         <Truthy>
           <RepositoryHeader isFile={false} repoMetadata={repoMetadata as TypesRepository} />
@@ -85,8 +89,14 @@ export default function Repository() {
           </Layout.Vertical>
         </Truthy>
         <Falsy>
-          <PageBody error={getErrorMessage(error || resourceError)} retryOnError={voidFn(refetch)}>
-            <LoadingSpinner visible={loading || resourceLoading} withBorder={!!resourceContent && resourceLoading} />
+          <PageBody
+            error={getErrorMessage(error || resourceError)}
+            retryOnError={() => (error ? refetch() : refetchContent())}>
+            <LoadingSpinner
+              visible={loading || resourceLoading}
+              withBorder={!!resourceContent && resourceLoading}
+              className={cx(css.spinner, { [css.withBorder]: !!resourceContent && resourceLoading })}
+            />
 
             {!!repoMetadata && (
               <>

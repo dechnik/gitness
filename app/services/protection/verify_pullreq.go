@@ -16,6 +16,7 @@ package protection
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,6 +31,7 @@ import (
 type (
 	MergeVerifier interface {
 		MergeVerify(ctx context.Context, in MergeVerifyInput) (MergeVerifyOutput, []types.RuleViolations, error)
+		RequiredChecks(ctx context.Context, in RequiredChecksInput) (RequiredChecksOutput, error)
 	}
 
 	MergeVerifyInput struct {
@@ -49,6 +51,18 @@ type (
 		DeleteSourceBranch bool
 		AllowedMethods     []enum.MergeMethod
 	}
+
+	RequiredChecksInput struct {
+		Actor       *types.Principal
+		IsRepoOwner bool
+		Repo        *types.Repository
+		PullReq     *types.PullReq
+	}
+
+	RequiredChecksOutput struct {
+		RequiredIdentifiers   map[string]struct{}
+		BypassableIdentifiers map[string]struct{}
+	}
 )
 
 // ensures that the DefPullReq type implements Sanitizer and MergeVerifier interface.
@@ -58,16 +72,21 @@ var (
 )
 
 const (
-	codePullReqApprovalReqMinCount                   = "pullreq.approvals.require_minimum_count"
-	codePullReqApprovalReqMinCountLatest             = "pullreq.approvals.require_minimum_count:latest_commit"
-	codePullReqApprovalReqLatestCommit               = "pullreq.approvals.require_latest_commit"
+	codePullReqApprovalReqMinCount              = "pullreq.approvals.require_minimum_count"
+	codePullReqApprovalReqMinCountLatest        = "pullreq.approvals.require_minimum_count:latest_commit"
+	codePullReqApprovalReqLatestCommit          = "pullreq.approvals.require_latest_commit"
+	codePullReqApprovalReqChangeRequested       = "pullreq.approvals.require_change_requested"
+	codePullReqApprovalReqChangeRequestedOldSHA = "pullreq.approvals.require_change_requested_old_SHA"
+
 	codePullReqApprovalReqCodeOwnersNoApproval       = "pullreq.approvals.require_code_owners:no_approval"
 	codePullReqApprovalReqCodeOwnersChangeRequested  = "pullreq.approvals.require_code_owners:change_requested"
 	codePullReqApprovalReqCodeOwnersNoLatestApproval = "pullreq.approvals.require_code_owners:no_latest_approval"
-	codePullReqCommentsReqResolveAll                 = "pullreq.comments.require_resolve_all"
-	codePullReqStatusChecksReqUIDs                   = "pullreq.status_checks.required_uids"
-	codePullReqMergeStrategiesAllowed                = "pullreq.merge.strategies_allowed"
-	codePullReqMergeDeleteBranch                     = "pullreq.merge.delete_branch"
+
+	codePullReqMergeStrategiesAllowed = "pullreq.merge.strategies_allowed"
+	codePullReqMergeDeleteBranch      = "pullreq.merge.delete_branch"
+
+	codePullReqCommentsReqResolveAll      = "pullreq.comments.require_resolve_all"
+	codePullReqStatusChecksReqIdentifiers = "pullreq.status_checks.required_identifiers"
 )
 
 //nolint:gocognit // well aware of this
@@ -84,14 +103,31 @@ func (v *DefPullReq) MergeVerify(
 
 	approvedBy := make([]types.PrincipalInfo, 0, len(in.Reviewers))
 	for _, reviewer := range in.Reviewers {
-		if reviewer.ReviewDecision != enum.PullReqReviewDecisionApproved {
-			continue
+		switch reviewer.ReviewDecision {
+		case enum.PullReqReviewDecisionApproved:
+			if v.Approvals.RequireLatestCommit && reviewer.SHA != in.PullReq.SourceSHA {
+				continue
+			}
+			approvedBy = append(approvedBy, reviewer.Reviewer)
+		case enum.PullReqReviewDecisionChangeReq:
+			if v.Approvals.RequireNoChangeRequest {
+				if reviewer.SHA == in.PullReq.SourceSHA {
+					violations.Addf(
+						codePullReqApprovalReqChangeRequested,
+						"Reviewer %s requested changes",
+						reviewer.Reviewer.DisplayName,
+					)
+				} else {
+					violations.Addf(
+						codePullReqApprovalReqChangeRequestedOldSHA,
+						"Reviewer %s requested changes for an older commit",
+						reviewer.Reviewer.DisplayName,
+					)
+				}
+			}
+		case enum.PullReqReviewDecisionPending,
+			enum.PullReqReviewDecisionReviewed:
 		}
-		if v.Approvals.RequireLatestCommit && reviewer.SHA != in.PullReq.SourceSHA {
-			continue
-		}
-
-		approvedBy = append(approvedBy, reviewer.Reviewer)
 	}
 
 	if len(approvedBy) < v.Approvals.RequireMinimumCount {
@@ -146,26 +182,26 @@ func (v *DefPullReq) MergeVerify(
 
 	// pullreq.status_checks
 
-	var violatingStatusCheckUIDs []string
-	for _, requiredUID := range v.StatusChecks.RequireUIDs {
+	var violatingStatusCheckIdentifiers []string
+	for _, requiredIdentifier := range v.StatusChecks.RequireIdentifiers {
 		var succeeded bool
 		for i := range in.CheckResults {
-			if in.CheckResults[i].UID == requiredUID {
+			if in.CheckResults[i].Identifier == requiredIdentifier {
 				succeeded = in.CheckResults[i].Status == enum.CheckStatusSuccess
 				break
 			}
 		}
 
 		if !succeeded {
-			violatingStatusCheckUIDs = append(violatingStatusCheckUIDs, requiredUID)
+			violatingStatusCheckIdentifiers = append(violatingStatusCheckIdentifiers, requiredIdentifier)
 		}
 	}
 
-	if len(violatingStatusCheckUIDs) > 0 {
+	if len(violatingStatusCheckIdentifiers) > 0 {
 		violations.Addf(
-			codePullReqStatusChecksReqUIDs,
+			codePullReqStatusChecksReqIdentifiers,
 			"The following status checks are required to be completed successfully: %s",
-			strings.Join(violatingStatusCheckUIDs, ", "),
+			strings.Join(violatingStatusCheckIdentifiers, ", "),
 		)
 	}
 
@@ -197,10 +233,24 @@ func (v *DefPullReq) MergeVerify(
 	return out, nil, nil
 }
 
+func (v *DefPullReq) RequiredChecks(
+	_ context.Context,
+	_ RequiredChecksInput,
+) (RequiredChecksOutput, error) {
+	m := make(map[string]struct{}, len(v.StatusChecks.RequireIdentifiers))
+	for _, id := range v.StatusChecks.RequireIdentifiers {
+		m[id] = struct{}{}
+	}
+	return RequiredChecksOutput{
+		RequiredIdentifiers: m,
+	}, nil
+}
+
 type DefApprovals struct {
-	RequireCodeOwners   bool `json:"require_code_owners,omitempty"`
-	RequireMinimumCount int  `json:"require_minimum_count,omitempty"`
-	RequireLatestCommit bool `json:"require_latest_commit,omitempty"`
+	RequireCodeOwners      bool `json:"require_code_owners,omitempty"`
+	RequireMinimumCount    int  `json:"require_minimum_count,omitempty"`
+	RequireLatestCommit    bool `json:"require_latest_commit,omitempty"`
+	RequireNoChangeRequest bool `json:"require_no_change_request,omitempty"`
 }
 
 func (v *DefApprovals) Sanitize() error {
@@ -224,12 +274,47 @@ func (DefComments) Sanitize() error {
 }
 
 type DefStatusChecks struct {
-	RequireUIDs []string `json:"require_uids,omitempty"`
+	RequireIdentifiers []string `json:"require_identifiers,omitempty"`
 }
 
-func (v *DefStatusChecks) Sanitize() error {
-	if err := validateUIDSlice(v.RequireUIDs); err != nil {
-		return fmt.Errorf("required UIDs error: %w", err)
+// TODO [CODE-1363]: remove after identifier migration.
+func (c DefStatusChecks) MarshalJSON() ([]byte, error) {
+	// alias allows us to embed the original object while avoiding an infinite loop of marshaling.
+	type alias DefStatusChecks
+	return json.Marshal(&struct {
+		alias
+		RequireUIDs []string `json:"require_uids"`
+	}{
+		alias:       (alias)(c),
+		RequireUIDs: c.RequireIdentifiers,
+	})
+}
+
+// TODO [CODE-1363]: remove if we don't have any require_uids left in our DB.
+func (c *DefStatusChecks) UnmarshalJSON(data []byte) error {
+	// alias allows us to extract the original object while avoiding an infinite loop of unmarshaling.
+	type alias DefStatusChecks
+	res := struct {
+		alias
+		RequireUIDs []string `json:"require_uids"`
+	}{}
+
+	err := json.Unmarshal(data, &res)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal to alias type with required uids: %w", err)
+	}
+
+	*c = DefStatusChecks(res.alias)
+	if len(c.RequireIdentifiers) == 0 {
+		c.RequireIdentifiers = res.RequireUIDs
+	}
+
+	return nil
+}
+
+func (c *DefStatusChecks) Sanitize() error {
+	if err := validateIdentifierSlice(c.RequireIdentifiers); err != nil {
+		return fmt.Errorf("required identifiers error: %w", err)
 	}
 
 	return nil

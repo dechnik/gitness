@@ -18,8 +18,8 @@ import React from 'react'
 import { Avatar, Container, Layout, StringSubstitute, Text } from '@harnessio/uicore'
 import { Icon, IconName } from '@harnessio/icons'
 import { Color, FontVariation } from '@harnessio/design-system'
-import ReactTimeago from 'react-timeago'
 import { Render } from 'react-jsx-match'
+import { defaultTo } from 'lodash-es'
 import { CodeIcon, GitInfoProps } from 'utils/GitUtils'
 import { MarkdownViewer } from 'components/MarkdownViewer/MarkdownViewer'
 import { useStrings } from 'framework/strings'
@@ -30,18 +30,15 @@ import { CommentType } from 'components/DiffViewer/DiffViewerUtils'
 import { useAppContext } from 'AppContext'
 import { CommitActions } from 'components/CommitActions/CommitActions'
 import { PipeSeparator } from 'components/PipeSeparator/PipeSeparator'
+import { TimePopoverWithLocal } from 'utils/timePopoverLocal/TimePopoverWithLocal'
 import css from './Conversation.module.scss'
 
-interface SystemCommentProps extends Pick<GitInfoProps, 'pullRequestMetadata'> {
+interface SystemCommentProps extends Pick<GitInfoProps, 'pullReqMetadata'> {
   commentItems: CommentItem<TypesPullReqActivity>[]
   repoMetadataPath?: string
 }
 
-export const SystemComment: React.FC<SystemCommentProps> = ({
-  pullRequestMetadata,
-  commentItems,
-  repoMetadataPath
-}) => {
+export const SystemComment: React.FC<SystemCommentProps> = ({ pullReqMetadata, commentItems, repoMetadataPath }) => {
   const { getString } = useStrings()
   const payload = commentItems[0].payload
   const type = payload?.type
@@ -56,18 +53,24 @@ export const SystemComment: React.FC<SystemCommentProps> = ({
               <Icon name={CodeIcon.Merged} size={16} color={Color.PURPLE_700} />
             </Container>
 
-            <Avatar name={pullRequestMetadata.merger?.display_name} size="small" hoverCard={false} />
+            <Avatar name={pullReqMetadata.merger?.display_name} size="small" hoverCard={false} />
             <Text>
               <StringSubstitute
                 str={getString('pr.prMergedInfo')}
                 vars={{
-                  user: <strong>{pullRequestMetadata.merger?.display_name}</strong>,
-                  source: <strong>{pullRequestMetadata.source_branch}</strong>,
-                  target: <strong>{pullRequestMetadata.target_branch}</strong>,
+                  user: <strong>{pullReqMetadata.merger?.display_name}</strong>,
+                  source: <strong>{pullReqMetadata.source_branch}</strong>,
+                  target: <strong>{pullReqMetadata.target_branch}</strong>,
                   time: (
                     <Text inline margin={{ left: 'xsmall' }}>
                       <PipeSeparator height={9} />
-                      <ReactTimeago className={css.timeText} date={pullRequestMetadata.merged as number} />
+                      <TimePopoverWithLocal
+                        time={defaultTo(pullReqMetadata.merged as number, 0)}
+                        inline={false}
+                        className={css.timeText}
+                        font={{ variation: FontVariation.SMALL }}
+                        color={Color.GREY_400}
+                      />
                     </Text>
                   )
                 }}
@@ -98,7 +101,13 @@ export const SystemComment: React.FC<SystemCommentProps> = ({
                   time: (
                     <Text inline margin={{ left: 'xsmall' }}>
                       <PipeSeparator height={9} />
-                      <ReactTimeago className={css.timeText} date={payload?.created as number} />
+                      <TimePopoverWithLocal
+                        time={defaultTo(payload?.created as number, 0)}
+                        inline={false}
+                        className={css.timeText}
+                        font={{ variation: FontVariation.SMALL }}
+                        color={Color.GREY_400}
+                      />
                     </Text>
                   )
                 }}
@@ -131,7 +140,7 @@ export const SystemComment: React.FC<SystemCommentProps> = ({
                         href={routes.toCODEPullRequest({
                           repoPath: repoMetadataPath as string,
                           pullRequestSection: PullRequestSection.FILES_CHANGED,
-                          pullRequestId: String(pullRequestMetadata.number),
+                          pullRequestId: String(pullReqMetadata.number),
                           commitSHA: (payload?.payload as Unknown)?.new as string
                         })}
                       />
@@ -141,9 +150,13 @@ export const SystemComment: React.FC<SystemCommentProps> = ({
               />
             </Text>
             <PipeSeparator height={9} />
-            <Text inline font={{ variation: FontVariation.SMALL }} color={Color.GREY_400} width={100}>
-              <ReactTimeago date={payload?.created as number} />
-            </Text>
+            <TimePopoverWithLocal
+              time={defaultTo(payload?.created as number, 0)}
+              inline={true}
+              width={100}
+              font={{ variation: FontVariation.SMALL }}
+              color={Color.GREY_400}
+            />
           </Layout.Horizontal>
         </Container>
       )
@@ -171,7 +184,7 @@ export const SystemComment: React.FC<SystemCommentProps> = ({
                         href={routes.toCODEPullRequest({
                           repoPath: repoMetadataPath as string,
                           pullRequestSection: PullRequestSection.FILES_CHANGED,
-                          pullRequestId: String(pullRequestMetadata.number),
+                          pullRequestId: String(pullReqMetadata.number),
                           commitSHA: (payload?.payload as Unknown)?.sha as string
                         })}
                       />
@@ -181,9 +194,13 @@ export const SystemComment: React.FC<SystemCommentProps> = ({
               />
             </Text>
             <PipeSeparator height={9} />
-            <Text inline font={{ variation: FontVariation.SMALL }} color={Color.GREY_400} width={100}>
-              <ReactTimeago date={payload?.created as number} />
-            </Text>
+            <TimePopoverWithLocal
+              time={defaultTo(payload?.created as number, 0)}
+              width={100}
+              inline={true}
+              font={{ variation: FontVariation.SMALL }}
+              color={Color.GREY_400}
+            />
           </Layout.Horizontal>
         </Container>
       )
@@ -208,9 +225,13 @@ export const SystemComment: React.FC<SystemCommentProps> = ({
               />
             </Text>
             <PipeSeparator height={9} />
-            <Text inline font={{ variation: FontVariation.SMALL }} color={Color.GREY_400} width={100}>
-              <ReactTimeago date={payload?.created as number} />
-            </Text>
+            <TimePopoverWithLocal
+              time={defaultTo(payload?.created as number, 0)}
+              inline={true}
+              width={100}
+              font={{ variation: FontVariation.SMALL }}
+              color={Color.GREY_400}
+            />
           </Layout.Horizontal>
         </Container>
       )
@@ -237,9 +258,13 @@ export const SystemComment: React.FC<SystemCommentProps> = ({
             </Text>
             <PipeSeparator height={9} />
 
-            <Text inline font={{ variation: FontVariation.SMALL }} color={Color.GREY_400} width={100}>
-              <ReactTimeago date={payload?.created as number} />
-            </Text>
+            <TimePopoverWithLocal
+              time={defaultTo(payload?.created as number, 0)}
+              inline={true}
+              width={100}
+              font={{ variation: FontVariation.SMALL }}
+              color={Color.GREY_400}
+            />
           </Layout.Horizontal>
           <Render when={commentItems.length > 1}>
             <Container

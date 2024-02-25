@@ -17,10 +17,11 @@ package adapter
 import (
 	"context"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
-	"time"
 
+	"github.com/harness/gitness/git/command"
 	"github.com/harness/gitness/git/types"
 
 	gitea "code.gitea.io/gitea/modules/git"
@@ -44,7 +45,16 @@ func (a Adapter) InitRepository(
 	if repoPath == "" {
 		return ErrRepositoryPathEmpty
 	}
-	return gitea.InitRepository(ctx, repoPath, bare)
+	err := os.MkdirAll(repoPath, os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("failed to create directory '%s', err: %w", repoPath, err)
+	}
+
+	cmd := command.New("init")
+	if bare {
+		cmd.Add(command.WithFlag("--bare"))
+	}
+	return cmd.Run(ctx, command.WithDir(repoPath))
 }
 
 func (a Adapter) OpenRepository(
@@ -235,24 +245,21 @@ func (a Adapter) Commit(
 	if repoPath == "" {
 		return ErrRepositoryPathEmpty
 	}
-	// setup environment variables used by git-commit
-	// See https://git-scm.com/book/en/v2/Git-Internals-Environment-Variables
-	env := []string{
-		"GIT_AUTHOR_NAME=" + opts.Author.Identity.Name,
-		"GIT_AUTHOR_EMAIL=" + opts.Author.Identity.Email,
-		"GIT_AUTHOR_DATE=" + opts.Author.When.Format(time.RFC3339),
-		gitCommitterName + "=" + opts.Committer.Identity.Name,
-		gitCommitterEmail + "=" + opts.Committer.Identity.Email,
-		gitCommitterDate + "=" + opts.Committer.When.Format(time.RFC3339),
-	}
 
-	args := []string{
-		"commit",
-		"-m",
-		opts.Message,
-	}
-
-	_, _, err := gitea.NewCommand(ctx, args...).RunStdString(&gitea.RunOpts{Dir: repoPath, Env: env})
+	cmd := command.New("commit",
+		command.WithFlag("-m", opts.Message),
+		command.WithAuthorAndDate(
+			opts.Author.Identity.Name,
+			opts.Author.Identity.Email,
+			opts.Author.When,
+		),
+		command.WithCommitterAndDate(
+			opts.Committer.Identity.Name,
+			opts.Committer.Identity.Email,
+			opts.Committer.When,
+		),
+	)
+	err := cmd.Run(ctx, command.WithDir(repoPath))
 	// No stderr but exit status 1 means nothing to commit (see gitea CommitChanges)
 	if err != nil && err.Error() != "exit status 1" {
 		return processGiteaErrorf(err, "failed to commit changes")

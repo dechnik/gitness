@@ -44,7 +44,7 @@ type listWebhooksRequest struct {
 
 type webhookRequest struct {
 	repoRequest
-	ID int64 `path:"webhook_id"`
+	ID int64 `path:"webhook_identifier"`
 }
 
 type getWebhookRequest struct {
@@ -82,10 +82,12 @@ var queryParameterSortWebhook = openapi3.ParameterOrRef{
 		Schema: &openapi3.SchemaOrRef{
 			Schema: &openapi3.Schema{
 				Type:    ptrSchemaType(openapi3.SchemaTypeString),
-				Default: ptrptr(enum.WebhookAttrID.String()),
+				Default: ptrptr(enum.WebhookAttrIdentifier.String()),
 				Enum: []interface{}{
+					// TODO [CODE-1364]: Remove once UID/Identifier migration is completed.
 					ptr.String(enum.WebhookAttrID.String()),
 					ptr.String(enum.WebhookAttrUID.String()),
+					// TODO [CODE-1364]: Remove once UID/Identifier migration is completed.
 					ptr.String(enum.WebhookAttrDisplayName.String()),
 					ptr.String(enum.WebhookAttrCreated.String()),
 					ptr.String(enum.WebhookAttrUpdated.String()),
@@ -99,7 +101,7 @@ var queryParameterQueryWebhook = openapi3.ParameterOrRef{
 	Parameter: &openapi3.Parameter{
 		Name:        request.QueryParamQuery,
 		In:          openapi3.ParameterInQuery,
-		Description: ptr.String("The substring which is used to filter the webhooks by their uid."),
+		Description: ptr.String("The substring which is used to filter the webhooks by their identifier."),
 		Required:    ptr.Bool(false),
 		Schema: &openapi3.SchemaOrRef{
 			Schema: &openapi3.Schema{
@@ -144,7 +146,7 @@ func webhookOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&getWebhook, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&getWebhook, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&getWebhook, new(usererror.Error), http.StatusForbidden)
-	_ = reflector.Spec.AddOperation(http.MethodGet, "/repos/{repo_ref}/webhooks/{webhook_id}", getWebhook)
+	_ = reflector.Spec.AddOperation(http.MethodGet, "/repos/{repo_ref}/webhooks/{webhook_identifier}", getWebhook)
 
 	updateWebhook := openapi3.Operation{}
 	updateWebhook.WithTags("webhook")
@@ -155,7 +157,7 @@ func webhookOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&updateWebhook, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&updateWebhook, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&updateWebhook, new(usererror.Error), http.StatusForbidden)
-	_ = reflector.Spec.AddOperation(http.MethodPatch, "/repos/{repo_ref}/webhooks/{webhook_id}", updateWebhook)
+	_ = reflector.Spec.AddOperation(http.MethodPatch, "/repos/{repo_ref}/webhooks/{webhook_identifier}", updateWebhook)
 
 	deleteWebhook := openapi3.Operation{}
 	deleteWebhook.WithTags("webhook")
@@ -166,7 +168,7 @@ func webhookOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&deleteWebhook, new(usererror.Error), http.StatusInternalServerError)
 	_ = reflector.SetJSONResponse(&deleteWebhook, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&deleteWebhook, new(usererror.Error), http.StatusForbidden)
-	_ = reflector.Spec.AddOperation(http.MethodDelete, "/repos/{repo_ref}/webhooks/{webhook_id}", deleteWebhook)
+	_ = reflector.Spec.AddOperation(http.MethodDelete, "/repos/{repo_ref}/webhooks/{webhook_identifier}", deleteWebhook)
 
 	listWebhookExecutions := openapi3.Operation{}
 	listWebhookExecutions.WithTags("webhook")
@@ -179,7 +181,7 @@ func webhookOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&listWebhookExecutions, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&listWebhookExecutions, new(usererror.Error), http.StatusForbidden)
 	_ = reflector.Spec.AddOperation(http.MethodGet,
-		"/repos/{repo_ref}/webhooks/{webhook_id}/executions", listWebhookExecutions)
+		"/repos/{repo_ref}/webhooks/{webhook_identifier}/executions", listWebhookExecutions)
 
 	getWebhookExecution := openapi3.Operation{}
 	getWebhookExecution.WithTags("webhook")
@@ -192,5 +194,17 @@ func webhookOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&getWebhookExecution, new(usererror.Error), http.StatusUnauthorized)
 	_ = reflector.SetJSONResponse(&getWebhookExecution, new(usererror.Error), http.StatusForbidden)
 	_ = reflector.Spec.AddOperation(http.MethodGet,
-		"/repos/{repo_ref}/webhooks/{webhook_id}/executions/{webhook_execution_id}", getWebhookExecution)
+		"/repos/{repo_ref}/webhooks/{webhook_identifier}/executions/{webhook_execution_id}", getWebhookExecution)
+
+	retriggerWebhookExecution := openapi3.Operation{}
+	retriggerWebhookExecution.WithTags("webhook")
+	retriggerWebhookExecution.WithMapOfAnything(map[string]interface{}{"operationId": "retriggerWebhookExecution"})
+	_ = reflector.SetRequest(&retriggerWebhookExecution, nil, http.MethodPost)
+	_ = reflector.SetJSONResponse(&retriggerWebhookExecution, new(types.WebhookExecution), http.StatusOK)
+	_ = reflector.SetJSONResponse(&retriggerWebhookExecution, new(usererror.Error), http.StatusBadRequest)
+	_ = reflector.SetJSONResponse(&retriggerWebhookExecution, new(usererror.Error), http.StatusInternalServerError)
+	_ = reflector.SetJSONResponse(&retriggerWebhookExecution, new(usererror.Error), http.StatusUnauthorized)
+	_ = reflector.SetJSONResponse(&retriggerWebhookExecution, new(usererror.Error), http.StatusForbidden)
+	_ = reflector.Spec.AddOperation(http.MethodGet,
+		"/repos/{repo_ref}/webhooks/{webhook_identifier}/executions/{webhook_execution_id}", retriggerWebhookExecution)
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/upload"
 	"github.com/harness/gitness/app/api/controller/user"
 	controllerwebhook "github.com/harness/gitness/app/api/controller/webhook"
+	"github.com/harness/gitness/app/api/openapi"
 	"github.com/harness/gitness/app/auth/authn"
 	"github.com/harness/gitness/app/auth/authz"
 	"github.com/harness/gitness/app/bootstrap"
@@ -72,7 +73,7 @@ import (
 	"github.com/harness/gitness/app/store/logs"
 	"github.com/harness/gitness/app/url"
 	"github.com/harness/gitness/blob"
-	cliserver "github.com/harness/gitness/cli/server"
+	cliserver "github.com/harness/gitness/cli/operations/server"
 	"github.com/harness/gitness/encrypt"
 	"github.com/harness/gitness/events"
 	"github.com/harness/gitness/git"
@@ -142,11 +143,11 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		lock.WireSet,
 		cliserver.ProvidePubsubConfig,
 		pubsub.WireSet,
+		cliserver.ProvideJobsConfig,
+		job.WireSet,
 		cliserver.ProvideCleanupConfig,
 		cleanup.WireSet,
 		codecomments.WireSet,
-		cliserver.ProvideJobsConfig,
-		job.WireSet,
 		protection.WireSet,
 		checkcontroller.WireSet,
 		execution.WireSet,
@@ -179,6 +180,7 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		keywordsearch.WireSet,
 		controllerkeywordsearch.WireSet,
 		usergroup.WireSet,
+		openapi.WireSet,
 	)
 	return &cliserver.System{}, nil
 }

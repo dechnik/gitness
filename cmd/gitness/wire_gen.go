@@ -30,6 +30,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/upload"
 	"github.com/harness/gitness/app/api/controller/user"
 	webhook2 "github.com/harness/gitness/app/api/controller/webhook"
+	"github.com/harness/gitness/app/api/openapi"
 	"github.com/harness/gitness/app/auth/authn"
 	"github.com/harness/gitness/app/auth/authz"
 	"github.com/harness/gitness/app/bootstrap"
@@ -71,7 +72,7 @@ import (
 	"github.com/harness/gitness/app/store/logs"
 	"github.com/harness/gitness/app/url"
 	"github.com/harness/gitness/blob"
-	"github.com/harness/gitness/cli/server"
+	"github.com/harness/gitness/cli/operations/server"
 	"github.com/harness/gitness/encrypt"
 	"github.com/harness/gitness/events"
 	"github.com/harness/gitness/git"
@@ -121,7 +122,6 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	pathUID := check.ProvidePathUIDCheck()
 	repoStore := database.ProvideRepoStore(db, spacePathCache, spacePathStore)
 	pipelineStore := database.ProvidePipelineStore(db)
 	ruleStore := database.ProvideRuleStore(db, principalInfoCache)
@@ -187,7 +187,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	repoController := repo.ProvideController(config, transactor, provider, pathUID, authorizer, repoStore, spaceStore, pipelineStore, principalStore, ruleStore, principalInfoCache, protectionManager, gitInterface, repository, codeownersService, reporter, indexer, resourceLimiter, mutexManager)
+	repoController := repo.ProvideController(config, transactor, provider, authorizer, repoStore, spaceStore, pipelineStore, principalStore, ruleStore, principalInfoCache, protectionManager, gitInterface, repository, codeownersService, reporter, indexer, resourceLimiter, mutexManager)
 	executionStore := database.ProvideExecutionStore(db)
 	checkStore := database.ProvideCheckStore(db, principalInfoCache)
 	stageStore := database.ProvideStageStore(db)
@@ -207,18 +207,19 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	logStore := logs.ProvideLogStore(db, config)
 	logStream := livelog.ProvideLogStream()
 	logsController := logs2.ProvideController(authorizer, executionStore, repoStore, pipelineStore, stageStore, stepStore, logStore, logStream)
+	spaceIdentifier := check.ProvideSpaceIdentifierCheck()
 	secretStore := database.ProvideSecretStore(db)
 	connectorStore := database.ProvideConnectorStore(db)
 	exporterRepository, err := exporter.ProvideSpaceExporter(provider, gitInterface, repoStore, jobScheduler, executor, encrypter, streamer)
 	if err != nil {
 		return nil, err
 	}
-	spaceController := space.ProvideController(config, transactor, provider, streamer, pathUID, authorizer, spacePathStore, pipelineStore, secretStore, connectorStore, templateStore, spaceStore, repoStore, principalStore, repoController, membershipStore, repository, exporterRepository, resourceLimiter)
-	pipelineController := pipeline.ProvideController(pathUID, repoStore, triggerStore, authorizer, pipelineStore)
-	secretController := secret.ProvideController(pathUID, encrypter, secretStore, authorizer, spaceStore)
-	triggerController := trigger.ProvideController(authorizer, triggerStore, pathUID, pipelineStore, repoStore)
-	connectorController := connector.ProvideController(pathUID, connectorStore, authorizer, spaceStore)
-	templateController := template.ProvideController(pathUID, templateStore, authorizer, spaceStore)
+	spaceController := space.ProvideController(config, transactor, provider, streamer, spaceIdentifier, authorizer, spacePathStore, pipelineStore, secretStore, connectorStore, templateStore, spaceStore, repoStore, principalStore, repoController, membershipStore, repository, exporterRepository, resourceLimiter)
+	pipelineController := pipeline.ProvideController(repoStore, triggerStore, authorizer, pipelineStore)
+	secretController := secret.ProvideController(encrypter, secretStore, authorizer, spaceStore)
+	triggerController := trigger.ProvideController(authorizer, triggerStore, pipelineStore, repoStore)
+	connectorController := connector.ProvideController(connectorStore, authorizer, spaceStore)
+	templateController := template.ProvideController(templateStore, authorizer, spaceStore)
 	pluginController := plugin.ProvideController(pluginStore)
 	pullReqStore := database.ProvidePullReqStore(db, principalInfoCache)
 	pullReqActivityStore := database.ProvidePullReqActivityStore(db, principalInfoCache)
@@ -277,7 +278,8 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	keywordsearchController := keywordsearch2.ProvideController(authorizer, searcher, repoController, spaceController)
 	apiHandler := router.ProvideAPIHandler(ctx, config, authenticator, repoController, executionController, logsController, spaceController, pipelineController, secretController, triggerController, connectorController, templateController, pluginController, pullreqController, webhookController, githookController, serviceaccountController, controller, principalController, checkController, systemController, uploadController, keywordsearchController)
 	gitHandler := router.ProvideGitHandler(provider, authenticator, repoController)
-	webHandler := router.ProvideWebHandler(config)
+	openapiService := openapi.ProvideOpenAPIService()
+	webHandler := router.ProvideWebHandler(config, openapiService)
 	routerRouter := router.ProvideRouter(apiHandler, gitHandler, webHandler, provider)
 	serverServer := server2.ProvideServer(config, routerRouter)
 	executionManager := manager.ProvideExecutionManager(config, executionStore, pipelineStore, provider, streamer, fileService, converterService, logStore, logStream, checkStore, repoStore, schedulerScheduler, secretStore, stageStore, stepStore, principalStore)
@@ -302,7 +304,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 		return nil, err
 	}
 	cleanupConfig := server.ProvideCleanupConfig(config)
-	cleanupService, err := cleanup.ProvideService(cleanupConfig, jobScheduler, executor, webhookExecutionStore, tokenStore)
+	cleanupService, err := cleanup.ProvideService(cleanupConfig, jobScheduler, executor, webhookExecutionStore, tokenStore, repoStore, repoController)
 	if err != nil {
 		return nil, err
 	}

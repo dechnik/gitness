@@ -25,9 +25,10 @@ import (
 	"strings"
 
 	"github.com/harness/gitness/errors"
+	"github.com/harness/gitness/git/command"
+	"github.com/harness/gitness/git/parser"
 	"github.com/harness/gitness/git/types"
 
-	gitea "code.gitea.io/gitea/modules/git"
 	"github.com/rs/zerolog/log"
 )
 
@@ -53,19 +54,6 @@ func parseTreeNodeMode(s string) (types.TreeNodeType, types.TreeNodeMode, error)
 	}
 }
 
-func scanZeroSeparated(data []byte, atEOF bool) (advance int, token []byte, err error) {
-	if atEOF && len(data) == 0 {
-		return 0, nil, nil // Return nothing if at end of file and no data passed
-	}
-	if i := strings.IndexByte(string(data), 0); i >= 0 {
-		return i + 1, data[0:i], nil // Split at zero byte
-	}
-	if atEOF {
-		return len(data), data, nil // at the end of file return the data
-	}
-	return
-}
-
 // regexpLsTreeColumns is a regular expression that is used to parse a single line
 // of a "git ls-tree" output (which uses the NULL character as the line break).
 // The single line mode must be used because output might contain the EOL and other control characters.
@@ -80,32 +68,39 @@ func lsTree(
 	if repoPath == "" {
 		return nil, ErrRepositoryPathEmpty
 	}
-
-	args := []string{"ls-tree", "-z", rev, treePath}
-	output, stderr, err := gitea.NewCommand(ctx, args...).RunStdString(&gitea.RunOpts{Dir: repoPath})
-	if strings.Contains(stderr, "fatal: Not a valid object name") {
-		return nil, errors.NotFound("revision %q not found", rev)
-	}
+	cmd := command.New("ls-tree",
+		command.WithFlag("-z"),
+		command.WithArg(rev),
+		command.WithArg(treePath),
+	)
+	output := &bytes.Buffer{}
+	err := cmd.Run(ctx,
+		command.WithDir(repoPath),
+		command.WithStdout(output),
+	)
 	if err != nil {
+		if strings.Contains(err.Error(), "fatal: Not a valid object name") {
+			return nil, errors.NotFound("revision %q not found", rev)
+		}
 		return nil, fmt.Errorf("failed to run git ls-tree: %w", err)
 	}
 
-	if output == "" {
+	if output.Len() == 0 {
 		return nil, &types.PathNotFoundError{Path: treePath}
 	}
 
-	n := strings.Count(output, "\x00")
+	n := bytes.Count(output.Bytes(), []byte{'\x00'})
 
 	list := make([]types.TreeNode, 0, n)
-	scan := bufio.NewScanner(strings.NewReader(output))
-	scan.Split(scanZeroSeparated)
+	scan := bufio.NewScanner(output)
+	scan.Split(parser.ScanZeroSeparated)
 	for scan.Scan() {
 		line := scan.Text()
 
 		columns := regexpLsTreeColumns.FindStringSubmatch(line)
 		if columns == nil {
 			log.Ctx(ctx).Error().
-				Str("ls-tree", output). // logs the whole directory listing for the additional context
+				Str("ls-tree", output.String()). // logs the whole directory listing for the additional context
 				Str("line", line).
 				Msg("unrecognized format of git directory listing")
 			return nil, fmt.Errorf("unrecognized format of git directory listing: %q", line)
@@ -179,20 +174,24 @@ func (a Adapter) GetTreeNode(ctx context.Context, repoPath, rev, treePath string
 		if repoPath == "" {
 			return nil, ErrRepositoryPathEmpty
 		}
-
-		args := []string{"show", "--no-patch", "--format=" + fmtTreeHash, rev}
-		treeSHA, stderr, err := gitea.NewCommand(ctx, args...).RunStdString(&gitea.RunOpts{Dir: repoPath})
-		if strings.Contains(stderr, "ambiguous argument") {
-			return nil, errors.NotFound("could not resolve git revision: %s", rev)
-		}
+		cmd := command.New("show",
+			command.WithFlag("--no-patch"),
+			command.WithFlag("--format="+fmtTreeHash),
+			command.WithArg(rev),
+		)
+		output := &bytes.Buffer{}
+		err := cmd.Run(ctx, command.WithDir(repoPath), command.WithStdout(output))
 		if err != nil {
+			if strings.Contains(err.Error(), "ambiguous argument") {
+				return nil, errors.NotFound("could not resolve git revision: %s", rev)
+			}
 			return nil, fmt.Errorf("failed to get root tree node: %w", err)
 		}
 
 		return &types.TreeNode{
 			NodeType: types.TreeNodeTypeTree,
 			Mode:     types.TreeNodeModeTree,
-			Sha:      treeSHA,
+			Sha:      strings.TrimSpace(output.String()),
 			Name:     "",
 			Path:     "",
 		}, err
@@ -226,15 +225,12 @@ func (a Adapter) ReadTree(
 	if repoPath == "" {
 		return ErrRepositoryPathEmpty
 	}
-	errbuf := bytes.Buffer{}
-	if err := gitea.NewCommand(ctx, append([]string{"read-tree", ref}, args...)...).
-		Run(&gitea.RunOpts{
-			Dir:    repoPath,
-			Stdout: w,
-			Stderr: &errbuf,
-		}); err != nil {
-		return fmt.Errorf("unable to read %s in to the index: %w\n%s",
-			ref, err, errbuf.String())
+	cmd := command.New("read-tree",
+		command.WithArg(ref),
+		command.WithArg(args...),
+	)
+	if err := cmd.Run(ctx, command.WithDir(repoPath), command.WithStdout(w)); err != nil {
+		return fmt.Errorf("unable to read %s in to the index: %w", ref, err)
 	}
 	return nil
 }

@@ -19,11 +19,14 @@ import { Color } from '@harnessio/design-system'
 import React, { useMemo } from 'react'
 import { useHistory } from 'react-router-dom'
 import { useGet } from 'restful-react'
+import { defaultTo } from 'lodash-es'
 import { useAppContext } from 'AppContext'
 import { useStrings } from 'framework/strings'
-import type { TypesCommit, TypesRepository, TypesSignature } from 'services/code'
+import type { TypesCommit, TypesRepository } from 'services/code'
 import { CommitActions } from 'components/CommitActions/CommitActions'
-import { LIST_FETCHING_LIMIT, formatDate } from 'utils/Utils'
+import { LIST_FETCHING_LIMIT } from 'utils/Utils'
+import { TimePopoverWithLocal } from 'utils/timePopoverLocal/TimePopoverWithLocal'
+import { useDocumentTitle } from 'hooks/useDocumentTitle'
 import css from './CommitInfo.module.scss'
 
 const CommitInfo = (props: { repoMetadata: TypesRepository; commitRef: string }) => {
@@ -39,15 +42,15 @@ const CommitInfo = (props: { repoMetadata: TypesRepository; commitRef: string })
     },
     lazy: !repoMetadata
   })
-
   const commitURL = routes.toCODECommit({
     repoPath: repoMetadata.path as string,
     commitRef: commitRef
   })
-
-  const commitData = useMemo(() => {
-    return commits?.commits?.filter(commit => commit.sha === commitRef)
-  }, [commitRef, commits?.commits])
+  const commitData = useMemo(
+    () => commits?.commits?.filter(commit => commit.sha === commitRef)?.[0],
+    [commitRef, commits?.commits]
+  )
+  useDocumentTitle(defaultTo(commitData?.title, getString('commit')))
 
   return (
     <>
@@ -61,7 +64,7 @@ const CommitInfo = (props: { repoMetadata: TypesRepository; commitRef: string })
                 iconProps={{ size: 16 }}
                 padding="medium"
                 color="black">
-                {commitData[0] ? commitData[0]?.title : ''}
+                {defaultTo(commitData?.title, '')}
               </Text>
               <FlexExpander />
               <Button
@@ -81,17 +84,21 @@ const CommitInfo = (props: { repoMetadata: TypesRepository; commitRef: string })
           </Container>
           <Container className={css.infoContainer}>
             <Layout.Horizontal className={css.alignContent} padding={{ left: 'small', right: 'medium' }}>
-              <Avatar hoverCard={false} size="small" name={commitData[0] ? commitData[0].author?.identity?.name : ''} />
+              <Avatar hoverCard={false} size="small" name={defaultTo(commitData.author?.identity?.name, '')} />
               <Text className={css.infoText} color={Color.BLACK}>
-                {commitData[0] ? commitData[0].author?.identity?.name : ''}
+                {defaultTo(commitData.author?.identity?.name, '')}
               </Text>
-              <Text
-                font={{ size: 'small' }}
-                padding={{ left: 'small', right: 'large', top: 'medium', bottom: 'medium' }}>
-                {getString('commitsOn', {
-                  date: commitData[0] ? formatDate((commitData[0].committer as TypesSignature).when as string) : ''
-                })}
+              <Text font={{ size: 'small' }} padding={{ left: 'small', top: 'medium', bottom: 'medium' }}>
+                {getString('committed')}
+                <TimePopoverWithLocal
+                  padding={{ left: 'xsmall' }}
+                  time={defaultTo(commitData?.committer?.when as unknown as number, 0)}
+                  inline={false}
+                  font={{ size: 'small' }}
+                  color={Color.GREY_500}
+                />
               </Text>
+
               <FlexExpander />
               <CommitActions sha={commitRef} href={commitURL} enableCopy />
             </Layout.Horizontal>

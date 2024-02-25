@@ -23,9 +23,12 @@ import (
 	"time"
 
 	"github.com/harness/gitness/errors"
+	"github.com/harness/gitness/git/command"
+	"github.com/harness/gitness/git/enum"
 	"github.com/harness/gitness/git/types"
 
 	gitea "code.gitea.io/gitea/modules/git"
+	"github.com/rs/zerolog/log"
 )
 
 // GetLatestCommit gets the latest commit of a path relative from the provided revision.
@@ -40,7 +43,7 @@ func (a Adapter) GetLatestCommit(
 	}
 	treePath = cleanTreePath(treePath)
 
-	return getCommit(ctx, repoPath, rev, treePath)
+	return GetCommit(ctx, repoPath, rev, treePath)
 }
 
 func getGiteaCommits(
@@ -71,51 +74,50 @@ func (a Adapter) listCommitSHAs(
 	limit int,
 	filter types.CommitFilter,
 ) ([]string, error) {
-	args := make([]string, 0, 16)
-	args = append(args, "rev-list")
+	cmd := command.New("rev-list")
 
 	// return commits only up to a certain reference if requested
 	if filter.AfterRef != "" {
 		// ^REF tells the rev-list command to return only commits that aren't reachable by SHA
-		args = append(args, fmt.Sprintf("^%s", filter.AfterRef))
+		cmd.Add(command.WithArg(fmt.Sprintf("^%s", filter.AfterRef)))
 	}
 	// add refCommitSHA as starting point
-	args = append(args, ref)
+	cmd.Add(command.WithArg(ref))
 
 	if len(filter.Path) != 0 {
-		args = append(args, "--", filter.Path)
+		cmd.Add(command.WithPostSepArg(filter.Path))
 	}
 
 	// add pagination if requested
 	// TODO: we should add absolut limits to protect git (return error)
 	if limit > 0 {
-		args = append(args, "--max-count", fmt.Sprint(limit))
+		cmd.Add(command.WithFlag("--max-count", strconv.Itoa(limit)))
 
 		if page > 1 {
-			args = append(args, "--skip", fmt.Sprint((page-1)*limit))
+			cmd.Add(command.WithFlag("--skip", strconv.Itoa((page-1)*limit)))
 		}
 	}
 
 	if filter.Since > 0 || filter.Until > 0 {
-		args = append(args, "--date", "unix")
+		cmd.Add(command.WithFlag("--date", "unix"))
 	}
 	if filter.Since > 0 {
-		args = append(args, "--since", strconv.FormatInt(filter.Since, 10))
+		cmd.Add(command.WithFlag("--since", strconv.FormatInt(filter.Since, 10)))
 	}
 	if filter.Until > 0 {
-		args = append(args, "--until", strconv.FormatInt(filter.Until, 10))
+		cmd.Add(command.WithFlag("--until", strconv.FormatInt(filter.Until, 10)))
 	}
 	if filter.Committer != "" {
-		args = append(args, "--committer", filter.Committer)
+		cmd.Add(command.WithFlag("--committer", filter.Committer))
 	}
-
-	stdout, _, runErr := gitea.NewCommand(ctx, args...).RunStdBytes(&gitea.RunOpts{Dir: repoPath})
-	if runErr != nil {
+	output := &bytes.Buffer{}
+	err := cmd.Run(ctx, command.WithDir(repoPath), command.WithStdout(output))
+	if err != nil {
 		// TODO: handle error in case they don't have a common merge base!
-		return nil, processGiteaErrorf(runErr, "failed to trigger rev-list command")
+		return nil, processGiteaErrorf(err, "failed to trigger rev-list command")
 	}
 
-	return parseLinesToSlice(stdout), nil
+	return parseLinesToSlice(output.Bytes()), nil
 }
 
 // ListCommitSHAs lists the commits reachable from ref.
@@ -135,11 +137,13 @@ func (a Adapter) ListCommitSHAs(
 // ListCommits lists the commits reachable from ref.
 // Note: ref & afterRef can be Branch / Tag / CommitSHA.
 // Note: commits returned are [ref->...->afterRef).
-func (a Adapter) ListCommits(ctx context.Context,
+func (a Adapter) ListCommits(
+	ctx context.Context,
 	repoPath string,
 	ref string,
 	page int,
 	limit int,
+	includeFileStats bool,
 	filter types.CommitFilter,
 ) ([]types.Commit, []types.PathRenameDetails, error) {
 	if repoPath == "" {
@@ -169,10 +173,17 @@ func (a Adapter) ListCommits(ctx context.Context,
 			return nil, nil, err
 		}
 		commits[i] = *commit
+
+		if includeFileStats {
+			err = includeFileStatsInCommits(ctx, giteaRepo, commits)
+			if err != nil {
+				return nil, nil, err
+			}
+		}
 	}
 
 	if len(filter.Path) != 0 {
-		renameDetailsList, err := getRenameDetails(giteaRepo, commits, filter.Path)
+		renameDetailsList, err := getRenameDetails(ctx, giteaRepo, commits, filter.Path)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -181,6 +192,52 @@ func (a Adapter) ListCommits(ctx context.Context,
 	}
 
 	return commits, nil, nil
+}
+
+func includeFileStatsInCommits(
+	ctx context.Context,
+	giteaRepo *gitea.Repository,
+	commits []types.Commit,
+) error {
+	for i, commit := range commits {
+		fileStats, err := getFileStats(ctx, giteaRepo, commit.SHA)
+		if err != nil {
+			return fmt.Errorf("failed to get file stat: %w", err)
+		}
+		commits[i].FileStats = fileStats
+	}
+	return nil
+}
+
+func getFileStats(
+	ctx context.Context,
+	giteaRepo *gitea.Repository,
+	sha string,
+) (types.CommitFileStats, error) {
+	changeInfos, err := getChangeInfos(ctx, giteaRepo, sha)
+	if err != nil {
+		return types.CommitFileStats{}, fmt.Errorf("failed to get change infos: %w", err)
+	}
+	fileStats := types.CommitFileStats{
+		Added:    make([]string, 0),
+		Removed:  make([]string, 0),
+		Modified: make([]string, 0),
+	}
+	for _, c := range changeInfos {
+		switch {
+		case c.ChangeType == enum.FileDiffStatusModified || c.ChangeType == enum.FileDiffStatusRenamed:
+			fileStats.Modified = append(fileStats.Modified, c.Path)
+		case c.ChangeType == enum.FileDiffStatusDeleted:
+			fileStats.Removed = append(fileStats.Removed, c.Path)
+		case c.ChangeType == enum.FileDiffStatusAdded || c.ChangeType == enum.FileDiffStatusCopied:
+			fileStats.Added = append(fileStats.Added, c.Path)
+		case c.ChangeType == enum.FileDiffStatusUndefined:
+		default:
+			log.Ctx(ctx).Warn().Msgf("unknown change type %q for path %q",
+				c.ChangeType, c.Path)
+		}
+	}
+	return fileStats, nil
 }
 
 // In case of rename of a file, same commit will be listed twice - Once in old file and second time in new file.
@@ -203,6 +260,7 @@ func cleanupCommitsForRename(
 }
 
 func getRenameDetails(
+	ctx context.Context,
 	giteaRepo *gitea.Repository,
 	commits []types.Commit,
 	path string,
@@ -213,7 +271,7 @@ func getRenameDetails(
 
 	renameDetailsList := make([]types.PathRenameDetails, 0, 2)
 
-	renameDetails, err := giteaGetRenameDetails(giteaRepo, commits[0].SHA, path)
+	renameDetails, err := giteaGetRenameDetails(ctx, giteaRepo, commits[0].SHA, path)
 	if err != nil {
 		return nil, err
 	}
@@ -226,7 +284,7 @@ func getRenameDetails(
 		return renameDetailsList, nil
 	}
 
-	renameDetailsLast, err := giteaGetRenameDetails(giteaRepo, commits[len(commits)-1].SHA, path)
+	renameDetailsLast, err := giteaGetRenameDetails(ctx, giteaRepo, commits[len(commits)-1].SHA, path)
 	if err != nil {
 		return nil, err
 	}
@@ -239,47 +297,97 @@ func getRenameDetails(
 }
 
 func giteaGetRenameDetails(
+	ctx context.Context,
 	giteaRepo *gitea.Repository,
 	ref string,
 	path string,
 ) (*types.PathRenameDetails, error) {
-	stdout, _, runErr := gitea.NewCommand(giteaRepo.Ctx, "log", ref, "--name-status", "--pretty=format:", "-1").
-		RunStdBytes(&gitea.RunOpts{Dir: giteaRepo.Path})
-	if runErr != nil {
-		return nil, fmt.Errorf("failed to trigger log command: %w", runErr)
-	}
-
-	lines := parseLinesToSlice(stdout)
-
-	changeType, oldPath, newPath, err := getFileChangeTypeFromLog(lines, path)
+	changeInfos, err := getChangeInfos(ctx, giteaRepo, ref)
 	if err != nil {
-		return nil, err
+		return &types.PathRenameDetails{}, fmt.Errorf("failed to get change infos %w", err)
 	}
 
-	if strings.HasPrefix(*changeType, "R") {
-		return &types.PathRenameDetails{
-			OldPath: *oldPath,
-			NewPath: *newPath,
-		}, nil
+	for _, c := range changeInfos {
+		if c.ChangeType == enum.FileDiffStatusRenamed && (c.Path == path || c.NewPath == path) {
+			return &types.PathRenameDetails{
+				OldPath: c.Path,
+				NewPath: c.NewPath,
+			}, nil
+		}
 	}
 
 	return &types.PathRenameDetails{}, nil
 }
 
-func getFileChangeTypeFromLog(
-	changeStrings []string,
-	filePath string,
-) (*string, *string, *string, error) {
-	for _, changeString := range changeStrings {
-		if strings.Contains(changeString, filePath) {
-			changeInfo := strings.Split(changeString, "\t")
-			if len(changeInfo) != 3 {
-				return &changeInfo[0], nil, nil, nil
-			}
-			return &changeInfo[0], &changeInfo[1], &changeInfo[2], nil
-		}
+func getChangeInfos(
+	ctx context.Context,
+	giteaRepo *gitea.Repository,
+	ref string,
+) ([]changeInfo, error) {
+	cmd := command.New("log",
+		command.WithArg(ref),
+		command.WithFlag("--name-status"),
+		command.WithFlag("--pretty=format:", "-1"),
+	)
+	output := &bytes.Buffer{}
+	err := cmd.Run(giteaRepo.Ctx, command.WithDir(giteaRepo.Path), command.WithStdout(output))
+	if err != nil {
+		return nil, fmt.Errorf("failed to trigger log command: %w", err)
 	}
-	return nil, nil, nil, fmt.Errorf("could not parse change for the file '%s'", filePath)
+	lines := parseLinesToSlice(output.Bytes())
+
+	changeInfos, err := getFileChangeTypeFromLog(ctx, lines)
+	if err != nil {
+		return nil, err
+	}
+	return changeInfos, nil
+}
+
+type changeInfo struct {
+	ChangeType enum.FileDiffStatus
+	Path       string
+	// populated only in case of renames
+	NewPath string
+}
+
+func getFileChangeTypeFromLog(
+	ctx context.Context,
+	changeStrings []string,
+) ([]changeInfo, error) {
+	changeInfos := make([]changeInfo, len(changeStrings))
+	for i, changeString := range changeStrings {
+		changeStringSplit := strings.Split(changeString, "\t")
+		if len(changeStringSplit) < 1 {
+			return changeInfos, fmt.Errorf("could not parse changeString %q", changeString)
+		}
+
+		c := changeInfo{}
+		c.ChangeType = convertChangeType(ctx, changeStringSplit[0])
+		c.Path = changeStringSplit[1]
+		if len(changeStringSplit) == 3 {
+			c.NewPath = changeStringSplit[2]
+		}
+		changeInfos[i] = c
+	}
+	return changeInfos, nil
+}
+
+func convertChangeType(ctx context.Context, c string) enum.FileDiffStatus {
+	switch {
+	case strings.HasPrefix(c, "A"):
+		return enum.FileDiffStatusAdded
+	case strings.HasPrefix(c, "C"):
+		return enum.FileDiffStatusCopied
+	case strings.HasPrefix(c, "D"):
+		return enum.FileDiffStatusDeleted
+	case strings.HasPrefix(c, "M"):
+		return enum.FileDiffStatusModified
+	case strings.HasPrefix(c, "R"):
+		return enum.FileDiffStatusRenamed
+	default:
+		log.Ctx(ctx).Warn().Msgf("encountered unknown change type %s", c)
+		return enum.FileDiffStatusUndefined
+	}
 }
 
 // GetCommit returns the (latest) commit for a specific revision.
@@ -292,7 +400,7 @@ func (a Adapter) GetCommit(
 		return nil, ErrRepositoryPathEmpty
 	}
 
-	return getCommit(ctx, repoPath, rev, "")
+	return GetCommit(ctx, repoPath, rev, "")
 }
 
 func (a Adapter) GetFullCommitID(
@@ -303,7 +411,18 @@ func (a Adapter) GetFullCommitID(
 	if repoPath == "" {
 		return "", ErrRepositoryPathEmpty
 	}
-	return gitea.GetFullCommitID(ctx, repoPath, shortID)
+	cmd := command.New("rev-parse",
+		command.WithArg(shortID),
+	)
+	output := &bytes.Buffer{}
+	err := cmd.Run(ctx, command.WithDir(repoPath), command.WithStdout(output))
+	if err != nil {
+		if strings.Contains(err.Error(), "exit status 128") {
+			return "", errors.NotFound("commit not found %s", shortID)
+		}
+		return "", err
+	}
+	return strings.TrimSpace(output.String()), nil
 }
 
 // GetCommits returns the (latest) commits for a specific list of refs.
@@ -445,7 +564,9 @@ func parseLinesToSlice(output []byte) []string {
 	return slice
 }
 
-func getCommit(
+// GetCommit returns info about a commit.
+// TODO: Move this function outside of the adapter package.
+func GetCommit(
 	ctx context.Context,
 	repoPath string,
 	rev string,
@@ -453,33 +574,40 @@ func getCommit(
 ) (*types.Commit, error) {
 	const format = "" +
 		fmtCommitHash + fmtZero + // 0
-		fmtAuthorName + fmtZero + // 1
-		fmtAuthorEmail + fmtZero + // 2
-		fmtAuthorTime + fmtZero + // 3
-		fmtCommitterName + fmtZero + // 4
-		fmtCommitterEmail + fmtZero + // 5
-		fmtCommitterTime + fmtZero + // 6
-		fmtSubject + fmtZero + // 7
-		fmtBody // 8
+		fmtParentHashes + fmtZero + // 1
+		fmtAuthorName + fmtZero + // 2
+		fmtAuthorEmail + fmtZero + // 3
+		fmtAuthorTime + fmtZero + // 4
+		fmtCommitterName + fmtZero + // 5
+		fmtCommitterEmail + fmtZero + // 6
+		fmtCommitterTime + fmtZero + // 7
+		fmtSubject + fmtZero + // 8
+		fmtBody // 9
 
-	args := []string{"log", "--max-count=1", "--format=" + format, rev}
+	cmd := command.New("log",
+		command.WithFlag("--max-count", "1"),
+		command.WithFlag("--format="+format),
+		command.WithArg(rev),
+	)
 	if path != "" {
-		args = append(args, "--", path)
+		cmd.Add(command.WithPostSepArg(path))
 	}
-
-	commitLine, stderr, err := gitea.NewCommand(ctx, args...).RunStdString(&gitea.RunOpts{Dir: repoPath})
-	if strings.Contains(stderr, "ambiguous argument") {
-		return nil, errors.NotFound("revision %q not found", rev)
-	}
+	output := &bytes.Buffer{}
+	err := cmd.Run(ctx, command.WithDir(repoPath), command.WithStdout(output))
 	if err != nil {
+		if strings.Contains(err.Error(), "ambiguous argument") {
+			return nil, errors.NotFound("revision %q not found", rev)
+		}
 		return nil, fmt.Errorf("failed to run git to get commit data: %w", err)
 	}
+
+	commitLine := output.String()
 
 	if commitLine == "" {
 		return nil, errors.InvalidArgument("path %q not found in %s", path, rev)
 	}
 
-	const columnCount = 9
+	const columnCount = 10
 
 	commitData := strings.Split(strings.TrimSpace(commitLine), separatorZero)
 	if len(commitData) != columnCount {
@@ -488,22 +616,27 @@ func getCommit(
 	}
 
 	sha := commitData[0]
-	authorName := commitData[1]
-	authorEmail := commitData[2]
-	authorTimestamp := commitData[3]
-	committerName := commitData[4]
-	committerEmail := commitData[5]
-	committerTimestamp := commitData[6]
-	subject := commitData[7]
-	body := commitData[8]
+	var parentSHAs []string
+	if commitData[1] != "" {
+		parentSHAs = strings.Split(commitData[1], " ")
+	}
+	authorName := commitData[2]
+	authorEmail := commitData[3]
+	authorTimestamp := commitData[4]
+	committerName := commitData[5]
+	committerEmail := commitData[6]
+	committerTimestamp := commitData[7]
+	subject := commitData[8]
+	body := commitData[9]
 
 	authorTime, _ := time.Parse(time.RFC3339Nano, authorTimestamp)
 	committerTime, _ := time.Parse(time.RFC3339Nano, committerTimestamp)
 
 	return &types.Commit{
-		SHA:     sha,
-		Title:   subject,
-		Message: body,
+		SHA:        sha,
+		ParentSHAs: parentSHAs,
+		Title:      subject,
+		Message:    body,
 		Author: types.Signature{
 			Identity: types.Identity{
 				Name:  authorName,

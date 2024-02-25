@@ -19,7 +19,7 @@ import type { PRChecksDecisionResult } from 'hooks/usePRChecksDecision'
 import type { EnumCheckStatus } from 'services/code'
 import type { GitInfoProps } from 'utils/GitUtils'
 
-export interface ChecksProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullRequestMetadata'> {
+export interface ChecksProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullReqMetadata'> {
   prChecksDecisionResult?: PRChecksDecisionResult
 }
 
@@ -90,4 +90,8 @@ export function parseLogString(logString: string) {
   })
 
   return parsedLogs
+}
+
+export function capitalizeFirstLetter(str: string) {
+  return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase()
 }

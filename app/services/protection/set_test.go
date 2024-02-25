@@ -66,24 +66,24 @@ func TestRuleSet_MergeVerify(t *testing.T) {
 			rules: []types.RuleInfoInternal{
 				{
 					RuleInfo: types.RuleInfo{
-						SpacePath: "",
-						RepoPath:  "space/repo",
-						ID:        1,
-						UID:       "rule1",
-						Type:      TypeBranch,
-						State:     enum.RuleStateActive,
+						SpacePath:  "",
+						RepoPath:   "space/repo",
+						ID:         1,
+						Identifier: "rule1",
+						Type:       TypeBranch,
+						State:      enum.RuleStateActive,
 					},
 					Pattern:    []byte(`{"default":true}`),
 					Definition: []byte(`{"pullreq":{"merge":{"strategies_allowed":["merge"],"delete_branch":true}}}`),
 				},
 				{
 					RuleInfo: types.RuleInfo{
-						SpacePath: "space",
-						RepoPath:  "",
-						ID:        2,
-						UID:       "rule2",
-						Type:      TypeBranch,
-						State:     enum.RuleStateActive,
+						SpacePath:  "space",
+						RepoPath:   "",
+						ID:         2,
+						Identifier: "rule2",
+						Type:       TypeBranch,
+						State:      enum.RuleStateActive,
 					},
 					Pattern:    []byte(`{"default":true}`),
 					Definition: []byte(`{"pullreq":{"approvals":{"require_minimum_count":1}}}`),
@@ -102,12 +102,12 @@ func TestRuleSet_MergeVerify(t *testing.T) {
 			expViol: []types.RuleViolations{
 				{
 					Rule: types.RuleInfo{
-						SpacePath: "",
-						RepoPath:  "space/repo",
-						ID:        1,
-						UID:       "rule1",
-						Type:      TypeBranch,
-						State:     enum.RuleStateActive,
+						SpacePath:  "",
+						RepoPath:   "space/repo",
+						ID:         1,
+						Identifier: "rule1",
+						Type:       TypeBranch,
+						State:      enum.RuleStateActive,
 					},
 					Bypassed: false,
 					Violations: []types.Violation{
@@ -116,12 +116,12 @@ func TestRuleSet_MergeVerify(t *testing.T) {
 				},
 				{
 					Rule: types.RuleInfo{
-						SpacePath: "space",
-						RepoPath:  "",
-						ID:        2,
-						UID:       "rule2",
-						Type:      TypeBranch,
-						State:     enum.RuleStateActive,
+						SpacePath:  "space",
+						RepoPath:   "",
+						ID:         2,
+						Identifier: "rule2",
+						Type:       TypeBranch,
+						State:      enum.RuleStateActive,
 					},
 					Bypassed: false,
 					Violations: []types.Violation{
@@ -135,24 +135,24 @@ func TestRuleSet_MergeVerify(t *testing.T) {
 			rules: []types.RuleInfoInternal{
 				{
 					RuleInfo: types.RuleInfo{
-						SpacePath: "",
-						RepoPath:  "space/repo",
-						ID:        1,
-						UID:       "rule1",
-						Type:      TypeBranch,
-						State:     enum.RuleStateActive,
+						SpacePath:  "",
+						RepoPath:   "space/repo",
+						ID:         1,
+						Identifier: "rule1",
+						Type:       TypeBranch,
+						State:      enum.RuleStateActive,
 					},
 					Pattern:    []byte(`{"default":true}`),
 					Definition: []byte(`{"pullreq":{"merge":{"strategies_allowed":["merge","rebase"]}}}`),
 				},
 				{
 					RuleInfo: types.RuleInfo{
-						SpacePath: "space",
-						RepoPath:  "",
-						ID:        2,
-						UID:       "rule2",
-						Type:      TypeBranch,
-						State:     enum.RuleStateActive,
+						SpacePath:  "space",
+						RepoPath:   "",
+						ID:         2,
+						Identifier: "rule2",
+						Type:       TypeBranch,
+						State:      enum.RuleStateActive,
 					},
 					Pattern:    []byte(`{"default":true}`),
 					Definition: []byte(`{"pullreq":{"merge":{"strategies_allowed":["rebase"]}}}`),
@@ -215,6 +215,96 @@ func TestRuleSet_MergeVerify(t *testing.T) {
 						t.Errorf("violation %d violation %d code: want=%s got=%s", i, j, want, got)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestRuleSet_RequiredChecks(t *testing.T) {
+	tests := []struct {
+		name   string
+		rules  []types.RuleInfoInternal
+		input  RequiredChecksInput
+		expOut RequiredChecksOutput
+	}{
+		{
+			name:  "empty",
+			rules: []types.RuleInfoInternal{},
+			input: RequiredChecksInput{
+				Actor:   &types.Principal{ID: 1},
+				Repo:    &types.Repository{ID: 1, DefaultBranch: "main"},
+				PullReq: &types.PullReq{ID: 1, SourceBranch: "pr", TargetBranch: "main"},
+			},
+			expOut: RequiredChecksOutput{
+				RequiredIdentifiers:   map[string]struct{}{},
+				BypassableIdentifiers: map[string]struct{}{},
+			},
+		},
+		{
+			name: "two-rules",
+			rules: []types.RuleInfoInternal{
+				{
+					RuleInfo: types.RuleInfo{
+						SpacePath:  "",
+						RepoPath:   "space/repo",
+						ID:         1,
+						Identifier: "rule1",
+						Type:       TypeBranch,
+						State:      enum.RuleStateActive,
+					},
+					Pattern: []byte(`{"default":true}`),
+					Definition: []byte(`{
+						"bypass":{"repo_owners":true},
+						"pullreq":{"status_checks":{"require_identifiers":["a", "b"]}}
+					}`),
+				},
+				{
+					RuleInfo: types.RuleInfo{
+						SpacePath:  "space",
+						RepoPath:   "",
+						ID:         2,
+						Identifier: "rule2",
+						Type:       TypeBranch,
+						State:      enum.RuleStateActive,
+					},
+					Pattern:    []byte(`{"default":true}`),
+					Definition: []byte(`{"pullreq":{"status_checks":{"require_identifiers":["b","c"]}}}`),
+				},
+			},
+			input: RequiredChecksInput{
+				Actor:       &types.Principal{ID: 1},
+				IsRepoOwner: true,
+				Repo:        &types.Repository{ID: 1, DefaultBranch: "main"},
+				PullReq:     &types.PullReq{ID: 1, SourceBranch: "pr", TargetBranch: "main"},
+			},
+			expOut: RequiredChecksOutput{
+				RequiredIdentifiers:   map[string]struct{}{"b": {}, "c": {}},
+				BypassableIdentifiers: map[string]struct{}{"a": {}},
+			},
+		},
+	}
+
+	ctx := context.Background()
+
+	m := NewManager(nil)
+	_ = m.Register(TypeBranch, func() Definition {
+		return &Branch{}
+	})
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			set := ruleSet{
+				rules:   test.rules,
+				manager: m,
+			}
+
+			out, err := set.RequiredChecks(ctx, test.input)
+			if err != nil {
+				t.Errorf("got error: %s", err.Error())
+			}
+
+			if want, got := test.expOut, out; !reflect.DeepEqual(want, got) {
+				t.Errorf("output: want=%+v got=%+v", want, got)
 			}
 		})
 	}

@@ -36,7 +36,7 @@ import { useMutate } from 'restful-react'
 import { Link, useHistory } from 'react-router-dom'
 import { useAppContext } from 'AppContext'
 import type { OpenapiContentInfo, OpenapiDirContent, TypesCommit } from 'services/code'
-import { formatDate, isInViewport, LIST_FETCHING_LIMIT } from 'utils/Utils'
+import { formatDate, isInViewport, LIST_FETCHING_LIMIT, PAGE_CONTAINER_WIDTH } from 'utils/Utils'
 import { findReadmeInfo, GitInfoProps, isFile, isSymlink, isSubmodule, normalizeGitRef } from 'utils/GitUtils'
 import { LatestCommitForFolder } from 'components/LatestCommit/LatestCommit'
 import { CommitActions } from 'components/CommitActions/CommitActions'
@@ -156,7 +156,7 @@ export function FolderContent({ repoMetadata, resourceContent, gitRef }: FolderC
             for (let i = 0; i < paths.length; i++) {
               const element = document.querySelector(`[data-resource-path="${paths[i]}"]`)
 
-              if (element && isInViewport(element)) {
+              if (element && isInViewport(element, IN_VIEW_DETECTION_MARGIN)) {
                 pathsChunk.loading = true
 
                 if (isMounted.current) {
@@ -238,7 +238,12 @@ export function FolderContent({ repoMetadata, resourceContent, gitRef }: FolderC
       />
 
       <Render when={readmeInfo}>
-        <Readme metadata={repoMetadata} readmeInfo={readmeInfo as OpenapiContentInfo} gitRef={gitRef} />
+        <Readme
+          metadata={repoMetadata}
+          readmeInfo={readmeInfo as OpenapiContentInfo}
+          gitRef={gitRef}
+          maxWidth={`calc(var(${PAGE_CONTAINER_WIDTH}) - 48px)`}
+        />
       </Render>
     </Container>
   )
@@ -348,3 +353,5 @@ const ListingItemLink: React.FC<ListingItemLinkProps> = ({ url, text, className,
     </Link>
   </Container>
 )
+
+const IN_VIEW_DETECTION_MARGIN = 500

@@ -53,7 +53,7 @@ interface SelectedItemDataInterface {
   stage_id: string
 }
 
-export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullRequestMetadata, prChecksDecisionResult }) => {
+export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullReqMetadata, prChecksDecisionResult }) => {
   const { getString } = useStrings()
   const history = useHistory()
   const { routes, standalone } = useAppContext()
@@ -106,15 +106,28 @@ export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullRequestMetadat
     if (queue.length !== 0) {
       processExecutionData(queue)
     } // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [queue, selectedStageId])
-
-  if (!prChecksDecisionResult) {
-    return null
-  }
-
+  }, [queue, selectedStageId, hookData])
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const enqueue = (item: any) => {
     setQueue(prevQueue => [...prevQueue, item])
+  }
+  useEffect(() => {
+    const pollingInterval = 4000
+
+    const fetchAndProcessData = () => {
+      hookData?.refetch()
+      if (hookData && rootNodeId) {
+        enqueue(rootNodeId) // Use your existing enqueue logic here
+      }
+    }
+    // Set up the polling with setInterval
+    const intervalId = setInterval(fetchAndProcessData, pollingInterval)
+    // Clean up the interval on component unmount
+    return () => clearInterval(intervalId)
+  }, [hookData, enqueue, dispatch])
+
+  if (!prChecksDecisionResult) {
+    return null
   }
 
   const processExecutionData = (curQueue: string[]) => {
@@ -169,7 +182,7 @@ export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullRequestMetadat
           <Split split="vertical" size={400} minSize={300} maxSize={700} primary="first">
             <ChecksMenu
               repoMetadata={repoMetadata}
-              pullRequestMetadata={pullRequestMetadata}
+              pullReqMetadata={pullReqMetadata}
               prChecksDecisionResult={prChecksDecisionResult}
               onDataItemChanged={data => {
                 setTimeout(() => setSelectedItemData(data), 0)
@@ -232,7 +245,7 @@ export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullRequestMetadat
                     <Truthy>
                       <CheckPipelineSteps
                         repoMetadata={repoMetadata}
-                        pullRequestMetadata={pullRequestMetadata}
+                        pullReqMetadata={pullReqMetadata}
                         pipelineName={selectedItemData?.uid as string}
                         stage={selectedStage as TypesStage}
                         executionNumber={get(selectedItemData, 'payload.data.execution_number', '')}

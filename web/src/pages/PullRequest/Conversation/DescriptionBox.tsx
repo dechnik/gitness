@@ -25,6 +25,7 @@ import { OptionsMenuButton } from 'components/OptionsMenuButton/OptionsMenuButto
 import { MarkdownEditorWithPreview } from 'components/MarkdownEditorWithPreview/MarkdownEditorWithPreview'
 import { NavigationCheck } from 'components/NavigationCheck/NavigationCheck'
 import { getErrorMessage } from 'utils/Utils'
+import { MAX_TEXT_LINE_SIZE_LIMIT, PULL_REQUEST_DESCRIPTION_SIZE_LIMIT } from 'settings'
 import type { ConversationProps } from './Conversation'
 import css from './Conversation.module.scss'
 
@@ -34,31 +35,31 @@ interface DescriptionBoxProps extends Omit<ConversationProps, 'onCancelEditDescr
 
 export const DescriptionBox: React.FC<DescriptionBoxProps> = ({
   repoMetadata,
-  pullRequestMetadata,
-  onCommentUpdate: refreshPullRequestMetadata,
+  pullReqMetadata,
+  onDescriptionSaved,
   onCancelEditDescription,
   standalone,
   routingId
 }) => {
   const [edit, setEdit] = useState(false)
   const [dirty, setDirty] = useState(false)
-  const [originalContent, setOriginalContent] = useState(pullRequestMetadata.description as string)
+  const [originalContent, setOriginalContent] = useState(pullReqMetadata.description as string)
   const [content, setContent] = useState(originalContent)
   const { getString } = useStrings()
   const { showError } = useToaster()
 
   const { mutate } = useMutate({
     verb: 'PATCH',
-    path: `/api/v1/repos/${repoMetadata.path}/+/pullreq/${pullRequestMetadata.number}`
+    path: `/api/v1/repos/${repoMetadata.path}/+/pullreq/${pullReqMetadata.number}`
   })
 
   useEffect(() => {
-    setEdit(!pullRequestMetadata?.description?.length)
+    setEdit(!pullReqMetadata?.description?.length)
 
-    if (pullRequestMetadata?.description) {
-      setContent(pullRequestMetadata?.description)
+    if (pullReqMetadata?.description) {
+      setContent(pullReqMetadata?.description)
     }
-  }, [pullRequestMetadata?.description, pullRequestMetadata?.description?.length])
+  }, [pullReqMetadata?.description, pullReqMetadata?.description?.length])
 
   return (
     <Container className={cx({ [css.box]: !edit, [css.desc]: !edit })}>
@@ -70,8 +71,19 @@ export const DescriptionBox: React.FC<DescriptionBoxProps> = ({
             repoMetadata={repoMetadata}
             value={content}
             onSave={value => {
+              if (value?.split('\n').some(line => line.length > MAX_TEXT_LINE_SIZE_LIMIT)) {
+                return showError(getString('pr.descHasTooLongLine', { max: MAX_TEXT_LINE_SIZE_LIMIT }), 0)
+              }
+
+              if (value.length > PULL_REQUEST_DESCRIPTION_SIZE_LIMIT) {
+                return showError(
+                  getString('pr.descIsTooLong', { max: PULL_REQUEST_DESCRIPTION_SIZE_LIMIT, len: value.length }),
+                  0
+                )
+              }
+
               const payload: OpenapiUpdatePullReqRequest = {
-                title: pullRequestMetadata.title,
+                title: pullReqMetadata.title,
                 description: value || ''
               }
               mutate(payload)
@@ -79,7 +91,7 @@ export const DescriptionBox: React.FC<DescriptionBoxProps> = ({
                   setContent(value)
                   setOriginalContent(value)
                   setEdit(false)
-                  refreshPullRequestMetadata()
+                  onDescriptionSaved()
                 })
                 .catch(exception => showError(getErrorMessage(exception), 0, getString('pr.failedToUpdate')))
             }}

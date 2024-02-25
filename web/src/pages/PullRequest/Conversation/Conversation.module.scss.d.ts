@@ -25,6 +25,7 @@ export declare const commentBox: string
 export declare const commentEditor: string
 export declare const commitContainer: string
 export declare const commitLink: string
+export declare const copyButton: string
 export declare const desc: string
 export declare const descBox: string
 export declare const descContainer: string
@@ -35,6 +36,7 @@ export declare const menuWrapper: string
 export declare const mergeContainer: string
 export declare const mergedBox: string
 export declare const optionMenuIcon: string
+export declare const popover: string
 export declare const refreshIcon: string
 export declare const repeatBtn: string
 export declare const selectButton: string

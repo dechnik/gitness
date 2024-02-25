@@ -15,11 +15,9 @@
 package git
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"path"
 	"strings"
 	"time"
@@ -35,7 +33,6 @@ import (
 )
 
 const (
-	filePrefix            = "file://"
 	defaultFilePermission = "100644" // 0o644 default file permission
 )
 
@@ -87,10 +84,17 @@ func (p *CommitFilesParams) Validate() error {
 	return p.WriteParams.Validate()
 }
 
+type CommitDiffStats struct {
+	Total     int
+	Additions int
+	Deletions int
+}
+
 type CommitFilesResponse struct {
 	CommitID string
 }
 
+//nolint:gocognit
 func (s *Service) CommitFiles(ctx context.Context, params *CommitFilesParams) (CommitFilesResponse, error) {
 	if err := params.Validate(); err != nil {
 		return CommitFilesResponse{}, err
@@ -140,84 +144,123 @@ func (s *Service) CommitFiles(ctx context.Context, params *CommitFilesParams) (C
 	log.Debug().Msg("validate and prepare input")
 
 	// ensure input data is valid
-	if err = s.validateAndPrepareHeader(repo, isEmpty, params); err != nil {
+	// the commit will be nil for empty repositories
+	commit, err := s.validateAndPrepareHeader(repo, isEmpty, params)
+	if err != nil {
 		return CommitFilesResponse{}, err
+	}
+
+	var oldCommitSHA string
+	if commit != nil {
+		oldCommitSHA = commit.ID.String()
 	}
 
 	log.Debug().Msg("create shared repo")
 
-	// create a new shared repo
-	shared, err := s.adapter.SharedRepository(s.tmpDir, params.RepoUID, repo.Path)
-	if err != nil {
-		return CommitFilesResponse{}, fmt.Errorf("failed to create shared repository: %w", err)
-	}
-	defer shared.Close(ctx)
-
-	log.Debug().Msgf("prepare tree (empty: %t)", isEmpty)
-
-	// handle empty repo separately (as branch doesn't exist, no commit exists, ...)
-	var parentCommitSHA string
-	if isEmpty {
-		err = s.prepareTreeEmptyRepo(ctx, shared, params.Actions)
+	newCommitSHA, err := func() (string, error) {
+		// Create a directory for the temporary shared repository.
+		shared, err := s.adapter.SharedRepository(s.tmpDir, params.RepoUID, repo.Path)
 		if err != nil {
-			return CommitFilesResponse{}, err
+			return "", fmt.Errorf("failed to create shared repository: %w", err)
 		}
-	} else {
-		parentCommitSHA, err = s.prepareTree(ctx, shared, params.Branch, params.Actions)
+		defer shared.Close(ctx)
+
+		// Create bare repository with alternates pointing to the original repository.
+		err = shared.InitAsShared(ctx)
 		if err != nil {
-			return CommitFilesResponse{}, err
+			return "", fmt.Errorf("failed to create temp repo with alternates: %w", err)
 		}
-	}
 
-	log.Debug().Msg("write tree")
+		log.Debug().Msgf("prepare tree (empty: %t)", isEmpty)
 
-	// Now write the tree
-	treeHash, err := shared.WriteTree(ctx)
+		// handle empty repo separately (as branch doesn't exist, no commit exists, ...)
+		if isEmpty {
+			err = s.prepareTreeEmptyRepo(ctx, shared, params.Actions)
+		} else {
+			err = shared.SetIndex(ctx, oldCommitSHA)
+			if err != nil {
+				return "", fmt.Errorf("failed to set index to temp repo: %w", err)
+			}
+
+			err = s.prepareTree(ctx, shared, params.Actions, commit)
+		}
+		if err != nil {
+			return "", fmt.Errorf("failed to prepare tree: %w", err)
+		}
+
+		log.Debug().Msg("write tree")
+
+		// Now write the tree
+		treeHash, err := shared.WriteTree(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to write tree object: %w", err)
+		}
+
+		message := strings.TrimSpace(params.Title)
+		if len(params.Message) > 0 {
+			message += "\n\n" + strings.TrimSpace(params.Message)
+		}
+
+		log.Debug().Msg("commit tree")
+
+		// Now commit the tree
+		commitSHA, err := shared.CommitTreeWithDate(
+			ctx,
+			oldCommitSHA,
+			&types.Identity{
+				Name:  author.Name,
+				Email: author.Email,
+			},
+			&types.Identity{
+				Name:  committer.Name,
+				Email: committer.Email,
+			},
+			treeHash,
+			message,
+			false,
+			authorDate,
+			committerDate,
+		)
+		if err != nil {
+			return "", fmt.Errorf("failed to commit the tree: %w", err)
+		}
+
+		err = shared.MoveObjects(ctx)
+		if err != nil {
+			return "", fmt.Errorf("failed to move git objects: %w", err)
+		}
+
+		return commitSHA, nil
+	}()
 	if err != nil {
-		return CommitFilesResponse{}, fmt.Errorf("failed to write tree object: %w", err)
+		return CommitFilesResponse{}, fmt.Errorf("CommitFiles: failed to create commit in shared repository: %w", err)
 	}
 
-	message := strings.TrimSpace(params.Title)
-	if len(params.Message) > 0 {
-		message += "\n\n" + strings.TrimSpace(params.Message)
+	log.Debug().Msg("update ref")
+
+	branchRef := adapter.GetReferenceFromBranchName(params.Branch)
+	if params.Branch != params.NewBranch {
+		// we are creating a new branch, rather than updating the existing one
+		oldCommitSHA = types.NilSHA
+		branchRef = adapter.GetReferenceFromBranchName(params.NewBranch)
 	}
-
-	log.Debug().Msg("commit tree")
-
-	// Now commit the tree
-	commitSHA, err := shared.CommitTreeWithDate(
+	err = s.adapter.UpdateRef(
 		ctx,
-		parentCommitSHA,
-		&types.Identity{
-			Name:  author.Name,
-			Email: author.Email,
-		},
-		&types.Identity{
-			Name:  committer.Name,
-			Email: committer.Email,
-		},
-		treeHash,
-		message,
-		false,
-		authorDate,
-		committerDate,
+		params.EnvVars,
+		repoPath,
+		branchRef,
+		oldCommitSHA,
+		newCommitSHA,
 	)
 	if err != nil {
-		return CommitFilesResponse{}, fmt.Errorf("failed to commit the tree: %w", err)
-	}
-
-	log.Debug().Msg("push branch to original repo")
-
-	env := CreateEnvironmentForPush(ctx, params.WriteParams)
-	if err = shared.PushCommitToBranch(ctx, commitSHA, params.NewBranch, false, env...); err != nil {
-		return CommitFilesResponse{}, fmt.Errorf("failed to push commits to remote repository: %w", err)
+		return CommitFilesResponse{}, fmt.Errorf("CommitFiles: failed to update ref %s: %w", branchRef, err)
 	}
 
 	log.Debug().Msg("get commit")
 
-	commit, err := shared.GetCommit(commitSHA)
+	commit, err = repo.GetCommit(newCommitSHA)
 	if err != nil {
-		return CommitFilesResponse{}, fmt.Errorf("failed to get commit for SHA %s: %w", commitSHA, err)
+		return CommitFilesResponse{}, fmt.Errorf("failed to get commit for SHA %s: %w", newCommitSHA, err)
 	}
 
 	log.Debug().Msg("done")
@@ -227,38 +270,27 @@ func (s *Service) CommitFiles(ctx context.Context, params *CommitFilesParams) (C
 	}, nil
 }
 
-func (s *Service) prepareTree(ctx context.Context, shared SharedRepo,
-	branchName string, actions []CommitFileAction) (string, error) {
-	// clone original branch from repo
-	if err := s.clone(ctx, shared, branchName); err != nil {
-		return "", err
-	}
-
-	// Get the latest commit of the original branch
-	commit, err := shared.GetBranchCommit(branchName)
-	if err != nil {
-		return "", fmt.Errorf("failed to get latest commit of the branch %s: %w", branchName, err)
-	}
-
+func (s *Service) prepareTree(
+	ctx context.Context,
+	shared *adapter.SharedRepo,
+	actions []CommitFileAction,
+	commit *git.Commit,
+) error {
 	// execute all actions
-	for _, action := range actions {
-		action := action
-		if err = s.processAction(ctx, shared, &action, commit); err != nil {
-			return "", err
+	for i := range actions {
+		if err := s.processAction(ctx, shared, &actions[i], commit); err != nil {
+			return err
 		}
 	}
 
-	return commit.ID.String(), nil
+	return nil
 }
 
-func (s *Service) prepareTreeEmptyRepo(ctx context.Context, shared *adapter.SharedRepo,
-	actions []CommitFileAction) error {
-	// init a new repo (full clone would cause risk that by time of push someone wrote to the remote repo!)
-	err := shared.Init(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to init shared tmp repository: %w", err)
-	}
-
+func (s *Service) prepareTreeEmptyRepo(
+	ctx context.Context,
+	shared *adapter.SharedRepo,
+	actions []CommitFileAction,
+) error {
 	for _, action := range actions {
 		if action.Action != CreateAction {
 			return errors.PreconditionFailed("action not allowed on empty repository")
@@ -269,8 +301,7 @@ func (s *Service) prepareTreeEmptyRepo(ctx context.Context, shared *adapter.Shar
 			return errors.InvalidArgument("invalid path")
 		}
 
-		reader := bytes.NewReader(action.Payload)
-		if err = createFile(ctx, shared, nil, filePath, defaultFilePermission, reader); err != nil {
+		if err := createFile(ctx, shared, nil, filePath, defaultFilePermission, action.Payload); err != nil {
 			return errors.Internal(err, "failed to create file '%s'", action.Path)
 		}
 	}
@@ -278,12 +309,15 @@ func (s *Service) prepareTreeEmptyRepo(ctx context.Context, shared *adapter.Shar
 	return nil
 }
 
-func (s *Service) validateAndPrepareHeader(repo *git.Repository, isEmpty bool,
-	params *CommitFilesParams) error {
+func (s *Service) validateAndPrepareHeader(
+	repo *git.Repository,
+	isEmpty bool,
+	params *CommitFilesParams,
+) (*git.Commit, error) {
 	if params.Branch == "" {
 		defaultBranchRef, err := repo.GetDefaultBranch()
 		if err != nil {
-			return fmt.Errorf("failed to get default branch: %w", err)
+			return nil, fmt.Errorf("failed to get default branch: %w", err)
 		}
 		params.Branch = defaultBranchRef
 	}
@@ -298,41 +332,32 @@ func (s *Service) validateAndPrepareHeader(repo *git.Repository, isEmpty bool,
 
 	// if the repo is empty then we can skip branch existence checks
 	if isEmpty {
-		return nil
+		return nil, nil //nolint:nilnil // an empty repository has no commit and there's no error
 	}
 
 	// ensure source branch exists
-	if _, err := repo.GetBranch(params.Branch); err != nil {
-		return fmt.Errorf("failed to get source branch '%s': %w", params.Branch, err)
+	branch, err := repo.GetBranch(params.Branch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get source branch '%s': %w", params.Branch, err)
 	}
 
 	// ensure new branch doesn't exist yet (if new branch creation was requested)
 	if params.Branch != params.NewBranch {
 		existingBranch, err := repo.GetBranch(params.NewBranch)
 		if existingBranch != nil {
-			return errors.Conflict("branch %s already exists", existingBranch.Name)
+			return nil, errors.Conflict("branch %s already exists", existingBranch.Name)
 		}
 		if err != nil && !git.IsErrBranchNotExist(err) {
-			return fmt.Errorf("failed to create new branch '%s': %w", params.NewBranch, err)
+			return nil, fmt.Errorf("failed to create new branch '%s': %w", params.NewBranch, err)
 		}
 	}
-	return nil
-}
 
-func (s *Service) clone(
-	ctx context.Context,
-	shared SharedRepo,
-	branch string,
-) error {
-	if err := shared.Clone(ctx, branch); err != nil {
-		return fmt.Errorf("failed to clone branch '%s': %w", branch, err)
+	commit, err := branch.GetCommit()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get branch commit: %w", err)
 	}
 
-	if err := shared.SetDefaultIndex(ctx); err != nil {
-		return fmt.Errorf("failed to set default index: %w", err)
-	}
-
-	return nil
+	return commit, nil
 }
 
 func (s *Service) processAction(
@@ -346,15 +371,13 @@ func (s *Service) processAction(
 		return errors.InvalidArgument("path cannot be empty")
 	}
 
-	reader := bytes.NewReader(action.Payload)
-
 	switch action.Action {
 	case CreateAction:
-		err = createFile(ctx, shared, commit, filePath, defaultFilePermission, reader)
+		err = createFile(ctx, shared, commit, filePath, defaultFilePermission, action.Payload)
 	case UpdateAction:
-		err = updateFile(ctx, shared, commit, filePath, action.SHA, defaultFilePermission, reader)
+		err = updateFile(ctx, shared, commit, filePath, action.SHA, defaultFilePermission, action.Payload)
 	case MoveAction:
-		err = moveFile(ctx, shared, commit, filePath, defaultFilePermission, reader)
+		err = moveFile(ctx, shared, commit, filePath, action.SHA, defaultFilePermission, action.Payload)
 	case DeleteAction:
 		err = deleteFile(ctx, shared, filePath)
 	}
@@ -363,7 +386,7 @@ func (s *Service) processAction(
 }
 
 func createFile(ctx context.Context, repo SharedRepo, commit *git.Commit,
-	filePath, mode string, reader io.Reader) error {
+	filePath, mode string, payload []byte) error {
 	// only check path availability if a source commit is available (empty repo won't have such a commit)
 	if commit != nil {
 		if err := checkPathAvailability(commit, filePath, true); err != nil {
@@ -371,7 +394,7 @@ func createFile(ctx context.Context, repo SharedRepo, commit *git.Commit,
 		}
 	}
 
-	hash, err := repo.WriteGitObject(ctx, reader)
+	hash, err := repo.WriteGitObject(ctx, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("createFile: error hashing object: %w", err)
 	}
@@ -384,7 +407,7 @@ func createFile(ctx context.Context, repo SharedRepo, commit *git.Commit,
 }
 
 func updateFile(ctx context.Context, repo SharedRepo, commit *git.Commit, filePath, sha,
-	mode string, reader io.Reader) error {
+	mode string, payload []byte) error {
 	// get file mode from existing file (default unless executable)
 	entry, err := getFileEntry(commit, sha, filePath)
 	if err != nil {
@@ -394,7 +417,7 @@ func updateFile(ctx context.Context, repo SharedRepo, commit *git.Commit, filePa
 		mode = "100755"
 	}
 
-	hash, err := repo.WriteGitObject(ctx, reader)
+	hash, err := repo.WriteGitObject(ctx, bytes.NewReader(payload))
 	if err != nil {
 		return fmt.Errorf("updateFile: error hashing object: %w", err)
 	}
@@ -406,38 +429,42 @@ func updateFile(ctx context.Context, repo SharedRepo, commit *git.Commit, filePa
 }
 
 func moveFile(ctx context.Context, repo SharedRepo, commit *git.Commit,
-	filePath, mode string, reader io.Reader) error {
-	buffer := &bytes.Buffer{}
-	newPath, err := parsePayload(reader, buffer)
+	filePath, sha, mode string, payload []byte) error {
+	newPath, newContent, err := parseMovePayload(payload)
 	if err != nil {
 		return err
 	}
 
-	if buffer.Len() == 0 && newPath != "" {
-		err = repo.ShowFile(ctx, filePath, commit.ID.String(), buffer)
-		if err != nil {
-			return fmt.Errorf("moveFile: failed lookup for path '%s': %w", newPath, err)
-		}
+	// ensure file exists and matches SHA
+	entry, err := getFileEntry(commit, sha, filePath)
+	if err != nil {
+		return err
 	}
 
+	// ensure new path is available
 	if err = checkPathAvailability(commit, newPath, false); err != nil {
 		return err
 	}
 
-	filesInIndex, err := repo.LsFiles(ctx, filePath)
-	if err != nil {
-		return fmt.Errorf("moveFile: listing files error: %w", err)
-	}
-	if !slices.Contains(filesInIndex, filePath) {
-		return errors.NotFound("path %s not found", filePath)
+	var fileHash string
+	var fileMode string
+	if newContent != nil {
+		hash, err := repo.WriteGitObject(ctx, bytes.NewReader(newContent))
+		if err != nil {
+			return fmt.Errorf("moveFile: error hashing object: %w", err)
+		}
+
+		fileHash = hash
+		fileMode = mode
+		if entry.IsExecutable() {
+			fileMode = "100755"
+		}
+	} else {
+		fileHash = entry.ID.String()
+		fileMode = entry.Mode().String()
 	}
 
-	hash, err := repo.WriteGitObject(ctx, buffer)
-	if err != nil {
-		return fmt.Errorf("moveFile: error hashing object: %w", err)
-	}
-
-	if err = repo.AddObjectToIndex(ctx, mode, hash, newPath); err != nil {
+	if err = repo.AddObjectToIndex(ctx, fileMode, fileHash, newPath); err != nil {
 		return fmt.Errorf("moveFile: add object error: %w", err)
 	}
 
@@ -476,7 +503,7 @@ func getFileEntry(
 	}
 
 	// If a SHA was given and the SHA given doesn't match the SHA of the fromTreePath, throw error
-	if sha == "" || sha != entry.ID.String() {
+	if sha != "" && sha != entry.ID.String() {
 		return nil, errors.InvalidArgument("sha does not match for path %s [given: %s, expected: %s]",
 			path, sha, entry.ID.String())
 	}
@@ -521,29 +548,22 @@ func checkPathAvailability(commit *git.Commit, filePath string, isNewFile bool) 
 	return nil
 }
 
-func parsePayload(payload io.Reader, content io.Writer) (string, error) {
-	newPath := ""
-	reader := bufio.NewReader(payload)
-	// check for filePrefix
-	prefixBytes := make([]byte, len(filePrefix))
-	if _, err := reader.Read(prefixBytes); err != nil {
-		if errors.Is(err, io.EOF) {
-			return "", nil
-		}
-		return "", err
-	}
-	// check if payload starts with filePrefix constant
-	if bytes.Equal(prefixBytes, []byte(filePrefix)) {
-		filename, _ := reader.ReadString('\n') // no err handling because next statement will check filename
-		newPath = files.CleanUploadFileName(filename)
-		if newPath == "" {
-			return "", types.ErrInvalidPath
-		}
+func parseMovePayload(payload []byte) (string, []byte, error) {
+	var newContent []byte
+	var newPath string
+	filePathEnd := bytes.IndexByte(payload, 0)
+	if filePathEnd < 0 {
+		newPath = string(payload)
+		newContent = nil
 	} else {
-		if _, err := content.Write(prefixBytes); err != nil {
-			return "", err
-		}
+		newPath = string(payload[:filePathEnd])
+		newContent = payload[filePathEnd+1:]
 	}
-	_, err := io.Copy(content, reader)
-	return newPath, err
+
+	newPath = files.CleanUploadFileName(newPath)
+	if newPath == "" {
+		return "", nil, types.ErrInvalidPath
+	}
+
+	return newPath, newContent, nil
 }

@@ -64,7 +64,9 @@ export interface AppProps {
     usePermissionTranslate: Unknown
     useGenerateToken: Unknown
     useExecutionDataHook: Unknown
-    useLogsContentHook: Unknown
+    useLogsContent: Unknown
+    useLogsStreaming: Unknown
+    useFeatureFlags: Unknown
   }>
 
   currentUser: Required<TypesUser>

@@ -33,8 +33,10 @@ func Sanitize[E constraints.Ordered](element E, all func() ([]E, E)) (E, bool) {
 }
 
 const (
-	id            = "id"
+	id = "id"
+	// TODO [CODE-1363]: remove after identifier migration.
 	uid           = "uid"
+	identifier    = "identifier"
 	path          = "path"
 	name          = "name"
 	email         = "email"
@@ -46,6 +48,8 @@ const (
 	updated       = "updated"
 	updatedAt     = "updated_at"
 	updatedBy     = "updated_by"
+	deleted       = "deleted"
+	deletedAt     = "deleted_at"
 	displayName   = "display_name"
 	date          = "date"
 	defaultString = "default"

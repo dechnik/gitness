@@ -50,7 +50,7 @@ func TestBranch_MergeVerify(t *testing.T) {
 			branch: Branch{
 				Bypass: DefBypass{},
 				PullReq: DefPullReq{
-					StatusChecks: DefStatusChecks{RequireUIDs: []string{"abc"}},
+					StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"abc"}},
 					Comments:     DefComments{RequireResolveAll: true},
 					Merge:        DefMerge{DeleteBranch: true},
 				},
@@ -70,7 +70,7 @@ func TestBranch_MergeVerify(t *testing.T) {
 					Bypassed:   false,
 					Violations: []types.Violation{
 						{Code: codePullReqCommentsReqResolveAll},
-						{Code: codePullReqStatusChecksReqUIDs},
+						{Code: codePullReqStatusChecksReqIdentifiers},
 					},
 				},
 			},
@@ -80,7 +80,7 @@ func TestBranch_MergeVerify(t *testing.T) {
 			branch: Branch{
 				Bypass: DefBypass{UserIDs: []int64{user.ID}},
 				PullReq: DefPullReq{
-					StatusChecks: DefStatusChecks{RequireUIDs: []string{"abc"}},
+					StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"abc"}},
 					Comments:     DefComments{RequireResolveAll: true},
 					Merge:        DefMerge{DeleteBranch: true},
 				},
@@ -100,7 +100,7 @@ func TestBranch_MergeVerify(t *testing.T) {
 					Bypassed:   true,
 					Violations: []types.Violation{
 						{Code: codePullReqCommentsReqResolveAll},
-						{Code: codePullReqStatusChecksReqUIDs},
+						{Code: codePullReqStatusChecksReqIdentifiers},
 					},
 				},
 			},
@@ -109,7 +109,7 @@ func TestBranch_MergeVerify(t *testing.T) {
 			name: "user-no-bypass",
 			branch: Branch{
 				PullReq: DefPullReq{
-					StatusChecks: DefStatusChecks{RequireUIDs: []string{"abc"}},
+					StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"abc"}},
 					Comments:     DefComments{RequireResolveAll: true},
 					Merge:        DefMerge{DeleteBranch: true},
 				},
@@ -129,7 +129,7 @@ func TestBranch_MergeVerify(t *testing.T) {
 					Bypassed:   false,
 					Violations: []types.Violation{
 						{Code: codePullReqCommentsReqResolveAll},
-						{Code: codePullReqStatusChecksReqUIDs},
+						{Code: codePullReqStatusChecksReqIdentifiers},
 					},
 				},
 			},
@@ -203,6 +203,96 @@ func TestBranch_MergeVerify(t *testing.T) {
 						t.Errorf("rule result %d, violation %d, code mismatch: want=%s got=%s", i, j, want, got)
 					}
 				}
+			}
+		})
+	}
+}
+
+func TestBranch_RequiredChecks(t *testing.T) {
+	user := &types.Principal{ID: 42}
+	admin := &types.Principal{ID: 66, Admin: true}
+
+	tests := []struct {
+		name   string
+		branch Branch
+		in     RequiredChecksInput
+		expOut RequiredChecksOutput
+	}{
+		{
+			name:   "empty",
+			branch: Branch{},
+			in:     RequiredChecksInput{Actor: user},
+			expOut: RequiredChecksOutput{
+				RequiredIdentifiers:   nil,
+				BypassableIdentifiers: nil,
+			},
+		},
+		{
+			name: "admin-bypassable",
+			branch: Branch{
+				Bypass: DefBypass{},
+				PullReq: DefPullReq{
+					StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"abc"}},
+				},
+			},
+			in: RequiredChecksInput{
+				Actor: admin,
+			},
+			expOut: RequiredChecksOutput{
+				RequiredIdentifiers:   nil,
+				BypassableIdentifiers: map[string]struct{}{"abc": {}},
+			},
+		},
+		{
+			name: "user-bypass",
+			branch: Branch{
+				Bypass: DefBypass{UserIDs: []int64{user.ID}},
+				PullReq: DefPullReq{
+					StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"abc"}},
+				},
+			},
+			in: RequiredChecksInput{
+				Actor: user,
+			},
+			expOut: RequiredChecksOutput{
+				RequiredIdentifiers:   nil,
+				BypassableIdentifiers: map[string]struct{}{"abc": {}},
+			},
+		},
+		{
+			name: "user-no-bypass",
+			branch: Branch{
+				PullReq: DefPullReq{
+					StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"abc"}},
+				},
+			},
+			in: RequiredChecksInput{
+				Actor: user,
+			},
+			expOut: RequiredChecksOutput{
+				RequiredIdentifiers:   map[string]struct{}{"abc": {}},
+				BypassableIdentifiers: nil,
+			},
+		},
+	}
+
+	ctx := context.Background()
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.branch.Sanitize(); err != nil {
+				t.Errorf("invalid: %s", err.Error())
+				return
+			}
+
+			out, err := test.branch.RequiredChecks(ctx, test.in)
+			if err != nil {
+				t.Errorf("error: %s", err.Error())
+				return
+			}
+
+			if want, got := test.expOut, out; !reflect.DeepEqual(want, got) {
+				t.Errorf("output: want=%+v got=%+v", want, got)
 			}
 		})
 	}

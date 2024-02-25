@@ -15,6 +15,8 @@
 package types
 
 import (
+	"encoding/json"
+
 	"github.com/harness/gitness/types/enum"
 )
 
@@ -24,13 +26,14 @@ type Repository struct {
 	ID          int64  `json:"id"`
 	Version     int64  `json:"-"`
 	ParentID    int64  `json:"parent_id"`
-	UID         string `json:"uid"`
+	Identifier  string `json:"identifier"`
 	Path        string `json:"path"`
 	Description string `json:"description"`
 	IsPublic    bool   `json:"is_public"`
 	CreatedBy   int64  `json:"created_by"`
 	Created     int64  `json:"created"`
 	Updated     int64  `json:"updated"`
+	Deleted     *int64 `json:"deleted,omitempty"`
 
 	Size        int64 `json:"size"`
 	SizeUpdated int64 `json:"size_updated"`
@@ -52,6 +55,19 @@ type Repository struct {
 	GitURL string `json:"git_url"`
 }
 
+// TODO [CODE-1363]: remove after identifier migration.
+func (r Repository) MarshalJSON() ([]byte, error) {
+	// alias allows us to embed the original object while avoiding an infinite loop of marshaling.
+	type alias Repository
+	return json.Marshal(&struct {
+		alias
+		UID string `json:"uid"`
+	}{
+		alias: (alias)(r),
+		UID:   r.Identifier,
+	})
+}
+
 type RepositorySizeInfo struct {
 	ID          int64  `json:"id"`
 	GitUID      string `json:"git_uid"`
@@ -65,11 +81,13 @@ func (r Repository) GetGitUID() string {
 
 // RepoFilter stores repo query parameters.
 type RepoFilter struct {
-	Page  int           `json:"page"`
-	Size  int           `json:"size"`
-	Query string        `json:"query"`
-	Sort  enum.RepoAttr `json:"sort"`
-	Order enum.Order    `json:"order"`
+	Page              int           `json:"page"`
+	Size              int           `json:"size"`
+	Query             string        `json:"query"`
+	Sort              enum.RepoAttr `json:"sort"`
+	Order             enum.Order    `json:"order"`
+	DeletedBeforeOrAt *int64        `json:"deleted_before_or_at,omitempty"`
+	Recursive         bool
 }
 
 // RepositoryGitInfo holds git info for a repository.

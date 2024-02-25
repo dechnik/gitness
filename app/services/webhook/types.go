@@ -15,6 +15,7 @@
 package webhook
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/harness/gitness/app/url"
@@ -41,9 +42,16 @@ type ReferenceSegment struct {
 	Ref ReferenceInfo `json:"ref"`
 }
 
-// ReferenceDetailsSegment contains extra defails for reference related payloads for webhooks.
+// ReferenceDetailsSegment contains extra details for reference related payloads for webhooks.
 type ReferenceDetailsSegment struct {
-	SHA    string      `json:"sha"`
+	SHA string `json:"sha"`
+
+	HeadCommit *CommitInfo `json:"head_commit,omitempty"`
+
+	Commits           *[]CommitInfo `json:"commits,omitempty"`
+	TotalCommitsCount int           `json:"total_commits_count,omitempty"`
+
+	// Deprecated
 	Commit *CommitInfo `json:"commit,omitempty"`
 }
 
@@ -73,9 +81,22 @@ type PullReqCommentSegment struct {
 type RepositoryInfo struct {
 	ID            int64  `json:"id"`
 	Path          string `json:"path"`
-	UID           string `json:"uid"`
+	Identifier    string `json:"identifier"`
 	DefaultBranch string `json:"default_branch"`
 	GitURL        string `json:"git_url"`
+}
+
+// TODO [CODE-1363]: remove after identifier migration.
+func (r RepositoryInfo) MarshalJSON() ([]byte, error) {
+	// alias allows us to embed the original object while avoiding an infinite loop of marshaling.
+	type alias RepositoryInfo
+	return json.Marshal(&struct {
+		alias
+		UID string `json:"uid"`
+	}{
+		alias: (alias)(r),
+		UID:   r.Identifier,
+	})
 }
 
 // repositoryInfoFrom gets the RespositoryInfo from a types.Repository.
@@ -83,7 +104,7 @@ func repositoryInfoFrom(repo *types.Repository, urlProvider url.Provider) Reposi
 	return RepositoryInfo{
 		ID:            repo.ID,
 		Path:          repo.Path,
-		UID:           repo.UID,
+		Identifier:    repo.Identifier,
 		DefaultBranch: repo.DefaultBranch,
 		GitURL:        urlProvider.GenerateGITCloneURL(repo.Path),
 	}
@@ -154,6 +175,10 @@ type CommitInfo struct {
 	Message   string        `json:"message"`
 	Author    SignatureInfo `json:"author"`
 	Committer SignatureInfo `json:"committer"`
+
+	Added    []string `json:"added"`
+	Removed  []string `json:"removed"`
+	Modified []string `json:"modified"`
 }
 
 // commitInfoFrom gets the CommitInfo from a git.Commit.
@@ -163,7 +188,19 @@ func commitInfoFrom(commit git.Commit) CommitInfo {
 		Message:   commit.Message,
 		Author:    signatureInfoFrom(commit.Author),
 		Committer: signatureInfoFrom(commit.Committer),
+		Added:     commit.FileStats.Added,
+		Removed:   commit.FileStats.Removed,
+		Modified:  commit.FileStats.Modified,
 	}
+}
+
+// commitsInfoFrom gets the ExtendedCommitInfo from a []git.Commit.
+func commitsInfoFrom(commits []git.Commit) []CommitInfo {
+	commitsInfo := make([]CommitInfo, len(commits))
+	for i, commit := range commits {
+		commitsInfo[i] = commitInfoFrom(commit)
+	}
+	return commitsInfo
 }
 
 // SignatureInfo describes the commit signature related info for a webhook payload.

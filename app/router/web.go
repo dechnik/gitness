@@ -23,7 +23,8 @@ import (
 	"github.com/harness/gitness/web"
 
 	"github.com/go-chi/chi"
-	"github.com/swaggest/swgui/v3emb"
+	"github.com/swaggest/swgui"
+	"github.com/swaggest/swgui/v5emb"
 	"github.com/unrolled/secure"
 )
 
@@ -33,7 +34,9 @@ type WebHandler interface {
 }
 
 // NewWebHandler returns a new WebHandler.
-func NewWebHandler(config *types.Config) WebHandler {
+func NewWebHandler(config *types.Config,
+	openapi openapi.Service,
+) WebHandler {
 	// Use go-chi router for inner routing
 	r := chi.NewRouter()
 	// create middleware to enforce security best practices for
@@ -59,9 +62,9 @@ func NewWebHandler(config *types.Config) WebHandler {
 		},
 	)
 
-	// openapi playground endpoints
+	// openapi endpoints
 	// TODO: this should not be generated and marshaled on the fly every time?
-	r.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/openapi.yaml", func(w http.ResponseWriter, _ *http.Request) {
 		spec := openapi.Generate()
 		data, err := spec.MarshalYAML()
 		if err != nil {
@@ -72,9 +75,25 @@ func NewWebHandler(config *types.Config) WebHandler {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write(data)
 	})
-	swagger := v3emb.NewHandler("API Definition", "/openapi.yaml", "/swagger")
-	r.With(sec.Handler).Handle("/swagger", swagger)
-	r.With(sec.Handler).Handle("/swagger/*", swagger)
+
+	// swagger endpoints
+	r.Group(func(r chi.Router) {
+		r.Use(sec.Handler)
+
+		swagger := v5emb.NewHandlerWithConfig(swgui.Config{
+			Title:       "API Definition",
+			SwaggerJSON: "/openapi.yaml",
+			BasePath:    "/swagger",
+			// Available settings can be found here:
+			// https://swagger.io/docs/open-source-tools/swagger-ui/usage/configuration/
+			SettingsUI: map[string]string{
+				"queryConfigEnabled": "false", // block code injection vulnerability
+			},
+		})
+
+		r.Handle("/swagger", swagger)
+		r.Handle("/swagger/*", swagger)
+	})
 
 	// serve all other routes from the embedded filesystem,
 	// which in turn serves the user interface.

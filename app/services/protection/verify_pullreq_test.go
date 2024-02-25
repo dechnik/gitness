@@ -249,39 +249,39 @@ func TestDefPullReq_MergeVerify(t *testing.T) {
 			expOut: MergeVerifyOutput{},
 		},
 		{
-			name: codePullReqStatusChecksReqUIDs + "-fail",
-			def:  DefPullReq{StatusChecks: DefStatusChecks{RequireUIDs: []string{"check1"}}},
+			name: codePullReqStatusChecksReqIdentifiers + "-fail",
+			def:  DefPullReq{StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"check1"}}},
 			in: MergeVerifyInput{
 				CheckResults: []types.CheckResult{
-					{UID: "check1", Status: enum.CheckStatusFailure},
-					{UID: "check2", Status: enum.CheckStatusSuccess},
+					{Identifier: "check1", Status: enum.CheckStatusFailure},
+					{Identifier: "check2", Status: enum.CheckStatusSuccess},
 				},
 				Method: enum.MergeMethodMerge,
 			},
-			expCodes:  []string{codePullReqStatusChecksReqUIDs},
+			expCodes:  []string{codePullReqStatusChecksReqIdentifiers},
 			expParams: [][]any{{"check1"}},
 			expOut:    MergeVerifyOutput{},
 		},
 		{
-			name: codePullReqStatusChecksReqUIDs + "-missing",
-			def:  DefPullReq{StatusChecks: DefStatusChecks{RequireUIDs: []string{"check1"}}},
+			name: codePullReqStatusChecksReqIdentifiers + "-missing",
+			def:  DefPullReq{StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"check1"}}},
 			in: MergeVerifyInput{
 				CheckResults: []types.CheckResult{
-					{UID: "check2", Status: enum.CheckStatusSuccess},
+					{Identifier: "check2", Status: enum.CheckStatusSuccess},
 				},
 				Method: enum.MergeMethodMerge,
 			},
-			expCodes:  []string{codePullReqStatusChecksReqUIDs},
+			expCodes:  []string{codePullReqStatusChecksReqIdentifiers},
 			expParams: [][]any{{"check1"}},
 			expOut:    MergeVerifyOutput{},
 		},
 		{
-			name: codePullReqStatusChecksReqUIDs + "-success",
-			def:  DefPullReq{StatusChecks: DefStatusChecks{RequireUIDs: []string{"check1"}}},
+			name: codePullReqStatusChecksReqIdentifiers + "-success",
+			def:  DefPullReq{StatusChecks: DefStatusChecks{RequireIdentifiers: []string{"check1"}}},
 			in: MergeVerifyInput{
 				CheckResults: []types.CheckResult{
-					{UID: "check1", Status: enum.CheckStatusSuccess},
-					{UID: "check2", Status: enum.CheckStatusFailure},
+					{Identifier: "check1", Status: enum.CheckStatusSuccess},
+					{Identifier: "check2", Status: enum.CheckStatusFailure},
 				},
 				Method: enum.MergeMethodMerge,
 			},
@@ -327,6 +327,71 @@ func TestDefPullReq_MergeVerify(t *testing.T) {
 				DeleteSourceBranch: true,
 				AllowedMethods:     nil,
 			},
+		},
+		{
+			name: codePullReqApprovalReqChangeRequested + "-true",
+			def: DefPullReq{
+				Approvals: DefApprovals{RequireNoChangeRequest: true},
+			},
+			in: MergeVerifyInput{
+				PullReq: &types.PullReq{SourceSHA: "abc"},
+				Method:  enum.MergeMethodMerge,
+			},
+			expOut: MergeVerifyOutput{},
+		},
+		{
+			name: codePullReqApprovalReqChangeRequested + "-false",
+			def: DefPullReq{
+				Approvals: DefApprovals{RequireNoChangeRequest: false},
+			},
+			in: MergeVerifyInput{
+				PullReq: &types.PullReq{SourceSHA: "abc"},
+				Reviewers: []*types.PullReqReviewer{
+					{ReviewDecision: enum.PullReqReviewDecisionChangeReq, SHA: "abc"},
+				},
+				Method: enum.MergeMethodMerge,
+			},
+			expOut: MergeVerifyOutput{},
+		},
+		{
+			name: codePullReqApprovalReqChangeRequested + "-sameSHA",
+			def: DefPullReq{
+				Approvals: DefApprovals{RequireNoChangeRequest: true},
+			},
+			in: MergeVerifyInput{
+				PullReq: &types.PullReq{SourceSHA: "abc"},
+				Reviewers: []*types.PullReqReviewer{
+					{
+						ReviewDecision: enum.PullReqReviewDecisionChangeReq,
+						Reviewer:       types.PrincipalInfo{DisplayName: "John"},
+						SHA:            "abc",
+					},
+				},
+				Method: enum.MergeMethodMerge,
+			},
+			expCodes:  []string{codePullReqApprovalReqChangeRequested},
+			expParams: [][]any{{"John"}},
+			expOut:    MergeVerifyOutput{},
+		},
+		{
+			name: codePullReqApprovalReqChangeRequested + "-diffSHA",
+			def: DefPullReq{
+				Approvals: DefApprovals{RequireNoChangeRequest: true},
+			},
+			in: MergeVerifyInput{
+				PullReq: &types.PullReq{SourceSHA: "abc"},
+				Reviewers: []*types.PullReqReviewer{
+					{
+						ReviewDecision: enum.PullReqReviewDecisionChangeReq,
+						Reviewer:       types.PrincipalInfo{DisplayName: "John"},
+						SHA:            "def",
+					},
+				},
+				Method: enum.MergeMethodMerge,
+			},
+			expCodes:  []string{codePullReqApprovalReqChangeRequestedOldSHA},
+			expParams: [][]any{{"John"}},
+			expOut:    MergeVerifyOutput{},
 		},
 	}
 

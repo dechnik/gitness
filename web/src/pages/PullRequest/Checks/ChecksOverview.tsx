@@ -19,6 +19,7 @@ import { Falsy, Match, Render, Truthy } from 'react-jsx-match'
 import { Container, Layout, Text, useToggle, Button, ButtonVariation, ButtonSize, Utils } from '@harnessio/uicore'
 import { FontVariation } from '@harnessio/design-system'
 import { Link } from 'react-router-dom'
+import ReactTimeago from 'react-timeago'
 import type { GitInfoProps } from 'utils/GitUtils'
 import { useStrings } from 'framework/strings'
 import { ExecutionStatus, ExecutionState } from 'components/ExecutionStatus/ExecutionStatus'
@@ -29,14 +30,14 @@ import { PullRequestCheckType, PullRequestSection, timeDistance } from 'utils/Ut
 import type { PRChecksDecisionResult } from 'hooks/usePRChecksDecision'
 import css from './ChecksOverview.module.scss'
 
-interface ChecksOverviewProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullRequestMetadata'> {
+interface ChecksOverviewProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullReqMetadata'> {
   prChecksDecisionResult: PRChecksDecisionResult
   codeOwners?: TypesCodeOwnerEvaluation
 }
 
 export function ChecksOverview({
   repoMetadata,
-  pullRequestMetadata,
+  pullReqMetadata,
   prChecksDecisionResult,
   codeOwners
 }: ChecksOverviewProps) {
@@ -49,11 +50,11 @@ export function ChecksOverview({
   return overallStatus && data?.length ? (
     <Container
       className={css.main}
-      margin={{ bottom: pullRequestMetadata.description && !codeOwners ? undefined : 'large' }}
+      margin={{ bottom: pullReqMetadata.description && !codeOwners ? undefined : 'large' }}
       style={{ '--border-color': Utils.getRealCSSColor(color) } as React.CSSProperties}>
       <Match expr={isExpanded}>
         <Truthy>
-          <CheckSections repoMetadata={repoMetadata} pullRequestMetadata={pullRequestMetadata} data={data} />
+          <CheckSections repoMetadata={repoMetadata} pullReqMetadata={pullReqMetadata} data={data} />
         </Truthy>
         <Falsy>
           <Layout.Horizontal spacing="small" className={css.layout}>
@@ -78,11 +79,11 @@ export function ChecksOverview({
   ) : null
 }
 
-interface CheckSectionsProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullRequestMetadata'> {
+interface CheckSectionsProps extends Pick<GitInfoProps, 'repoMetadata' | 'pullReqMetadata'> {
   data: TypesCheck[]
 }
 
-const CheckSections: React.FC<CheckSectionsProps> = ({ repoMetadata, pullRequestMetadata, data }) => {
+const CheckSections: React.FC<CheckSectionsProps> = ({ repoMetadata, pullReqMetadata, data }) => {
   const [checks, pipelines] = useMemo(
     () =>
       data.reduce(
@@ -102,13 +103,8 @@ const CheckSections: React.FC<CheckSectionsProps> = ({ repoMetadata, pullRequest
   return (
     <Container className={css.checks}>
       <Layout.Vertical spacing="medium">
-        <CheckSection
-          repoMetadata={repoMetadata}
-          pullRequestMetadata={pullRequestMetadata}
-          data={pipelines}
-          isPipeline
-        />
-        <CheckSection repoMetadata={repoMetadata} pullRequestMetadata={pullRequestMetadata} data={checks} />
+        <CheckSection repoMetadata={repoMetadata} pullReqMetadata={pullReqMetadata} data={pipelines} isPipeline />
+        <CheckSection repoMetadata={repoMetadata} pullReqMetadata={pullReqMetadata} data={checks} />
       </Layout.Vertical>
     </Container>
   )
@@ -116,13 +112,29 @@ const CheckSections: React.FC<CheckSectionsProps> = ({ repoMetadata, pullRequest
 
 const CheckSection: React.FC<CheckSectionsProps & { isPipeline?: boolean }> = ({
   repoMetadata,
-  pullRequestMetadata,
+  pullReqMetadata,
   data,
   isPipeline
 }) => {
   const { getString } = useStrings()
   const { routes } = useAppContext()
+  const customFormatter = (_value: number, _unit: string, _suffix: string, date: Date | string | number) => {
+    const now = new Date()
+    const then = new Date(date)
+    const secondsPast = (now.getTime() - then.getTime()) / 1000
+    const days = Math.round(secondsPast / 86400)
+    const remainder = secondsPast % 86400
+    const hours = Math.floor(remainder / 3600)
+    const minutes = Math.floor((remainder % 3600) / 60)
+    const seconds = Math.floor(remainder % 60)
 
+    return getString('customTime', {
+      days: days ? getString('customDay', { days }) : '',
+      hours: hours ? getString('customHour', { hours }) : '',
+      minutes: minutes ? getString('customMin', { minutes }) : '',
+      seconds: seconds ? getString('customSecond', { seconds }) : ''
+    })
+  }
   return (
     <Render when={data.length}>
       <Container>
@@ -134,7 +146,7 @@ const CheckSection: React.FC<CheckSectionsProps & { isPipeline?: boolean }> = ({
             {getString(isPipeline ? 'pageTitle.pipelines' : 'checks')}
           </Text>
           <Container className={css.table}>
-            {data.map(({ uid, status, summary, created, updated }) => (
+            {data.map(({ uid, status, summary, created, updated, ended }) => (
               <Container className={css.row} key={uid}>
                 <Layout.Horizontal className={css.rowLayout}>
                   <Container className={css.status}>
@@ -145,7 +157,7 @@ const CheckSection: React.FC<CheckSectionsProps & { isPipeline?: boolean }> = ({
                     to={
                       routes.toCODEPullRequest({
                         repoPath: repoMetadata.path as string,
-                        pullRequestId: String(pullRequestMetadata.number),
+                        pullRequestId: String(pullReqMetadata.number),
                         pullRequestSection: PullRequestSection.CHECKS
                       }) + `?uid=${uid}`
                     }>
@@ -159,7 +171,9 @@ const CheckSection: React.FC<CheckSectionsProps & { isPipeline?: boolean }> = ({
                   </Text>
 
                   <Text className={css.time} font={{ variation: FontVariation.SMALL }}>
-                    {timeDistance(updated, created)}
+                    {ended === 0
+                      ? created && <ReactTimeago date={created} formatter={customFormatter} />
+                      : timeDistance(updated, created)}
                   </Text>
                 </Layout.Horizontal>
               </Container>

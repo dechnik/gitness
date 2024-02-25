@@ -19,6 +19,7 @@ description: Description
 repositories: Repositories
 files: Files
 commit: Commit
+committed: committed
 commits: Commits
 commitChanges: Commit changes
 pullRequests: Pull Requests
@@ -49,6 +50,7 @@ confirmDefaultBranch:
   points: 'Open pull requests will still point to the previous default branch, Branch rules using pattern matching may need to be updated, Cloning the repository will now clone the new default branch'
 in: in
 ok: OK
+at: at
 on: On
 off: Off
 loading: Loading...
@@ -89,14 +91,12 @@ pageTitle:
   pullRequest: Pull Request
   pullRequests: Pull Requests
   createWebhook: Create Webhook
-  webhookDetail: Webhook Detail
   webhooks: Webhooks
   repositorySettings: Repository Settings
   repositories: Repositories
-  commits: Commits
   branches: Branches
   tags: Tags
-  editFile: Edit File
+  editFileLocation: Editing {{{path}}}
   repository: Repository
   home: Home
   users: Users
@@ -252,6 +252,8 @@ pr:
   showDiff: Show Diff
   fileDeleted: This file was deleted.
   fileUnchanged: File without changes.
+  diffTooLarge: Large diffs are not rendered by default.
+  fileBinary: Binary file not shown.
   showLink: '{count} changed {count|1:file,files}'
   diffStatsLabel: 'Showing {changedFilesLink} with {addedLines} {addedLines|1:addition,additions} and {deletedLines} {deletedLines|1:deletion,deletions} {configuration}'
   diffView: Diff View
@@ -299,6 +301,8 @@ pr:
   outdated: Outdated
   titleIsRequired: Pull Request title is required.
   descIsRequired: Pull Request description is required.
+  descIsTooLong: 'Description is too long ({{len}}/{{max}} characters).'
+  descHasTooLongLine: 'Some lines in the description exceed the maximum length of {{max}} characters, potentially causing performance issues. Consider dividing them into smaller segments.'
   draftOpenForReview:
     title: Ready for review
     desc: Open this pull request for review.
@@ -515,7 +519,7 @@ addLabel: Add
 updateLabel: Update
 users: Users
 findAUser: Find a user
-reviewerNotFound: 'Reviewer <strong>{{reviewer}}</strong> not found.'
+reviewerNotFound: 'Reviewer {reviewer} not found.'
 spaces: Projects
 space: Project
 selectSpace: Select project here
@@ -719,11 +723,23 @@ userUpdateSuccess: 'User updated successfully'
 viewFile: View File
 searchResult: 'Search Result {count}'
 aiSearch: AIDA SEARCH
+enableAISearch: Enable AI Search
+AIDA: AIDA
+keywordSearch:
+  sampleQueries:
+    searchForClass: Search for class
+    searchForFilesWithCMD: Search for class in files starting with cmd
+    searchForPattern: Include only results from file paths matching the given search pattern
+    searchForInitialCommit: Search for exact phrase initial commit
+
+keywordSearchPlaceholder: Search for code or files...
 codeSearch: Code Search
 codeSearchModal: Begin search by describing what you are looking for
 searchHeader: 'Here are some example to get you start:'
 startSearching: Begin search by describing what you are looking for.
 poweredByAI: Unlock the power of AI with Semantic Code search. Try phrases like "Locate the code for authentication".
+semanticSearch:
+  sampleQueries: Where is the code that handles authentication?,Where is the application entry point?,Where do we configure the logger?
 failedToFetchFileContent: 'ERROR: Failed to fetch file content.'
 run: Run
 plugins:
@@ -826,6 +842,7 @@ step:
 stepCategory:
   select: Select step category
 exportSpace:
+  harness: Harness
   accIdRequired: Account ID is required
   accesstokenReq: Access token is required
   accIdLabel: 'Harness Account Id'
@@ -961,3 +978,11 @@ clear: Clear
 searchExamples: Search Examples
 nMoreMatches: This file contains {{ n }} more matches not shown.
 seeNMoreMatches: See all {{ n }} matches in the full file
+bottom: Bottom
+top: Top
+customTime: '{{days}} {{hours}} {{minutes}} {{seconds}}'
+customDay: '{{days}}d'
+customHour: '{{hours}}h'
+customMin: '{{minutes}}m'
+customSecond: '{{seconds}}s'
+reqChanges: 'Request changes'
