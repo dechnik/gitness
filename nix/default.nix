@@ -12,7 +12,7 @@ let
     nativeBuildInputs = with pkgs; [ nodejs yarn fixup_yarn_lock ];
     offlineCache = pkgs.fetchYarnDeps {
       yarnLock = "${src}/nix/yarn.lock";
-      sha256 = "sha256-vH4GZEYu02x1q3lbK/ItrEH16vLXE+Z6PS9JUEOBCxI=";
+      sha256 = "sha256-KecJ7kdkduCYBsi7c5S/IyqmQ19PwsefJpnStB6hU2E=";
     };
     configurePhase = ''
       runHook preConfigure
@@ -88,7 +88,7 @@ pkgs.buildGoModule {
   pname = "gitness";
   inherit src;
   version = gitnessVersion;
-  vendorHash = "sha256-3cY/xEkmzP3I/s9WoUmbWmv/iPaKTYZquqdg8GbL2N8=";
+  vendorHash = "sha256-Ylf6c5gUo1pOrOo/yElxs6aNXaRs7Q5ZjAmfDUL8zMo=";
 
   nativeBuildInputs = [
     pkgs.makeWrapper
