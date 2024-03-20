@@ -12,7 +12,7 @@ let
     nativeBuildInputs = with pkgs; [ nodejs yarn fixup_yarn_lock ];
     offlineCache = pkgs.fetchYarnDeps {
       yarnLock = "${src}/nix/yarn.lock";
-      sha256 = "sha256-KecJ7kdkduCYBsi7c5S/IyqmQ19PwsefJpnStB6hU2E=";
+      sha256 = "sha256-Tf3ML4S6YDl9/OY9q8d5pk8LuRUnjKRmaLuxY5el+X0=";
     };
     configurePhase = ''
       runHook preConfigure
