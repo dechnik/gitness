@@ -50,8 +50,8 @@ import { OptionsMenuButton } from 'components/OptionsMenuButton/OptionsMenuButto
 import type { OpenapiRule, ProtectionPattern } from 'services/code'
 import { useAppContext } from 'AppContext'
 import { useGetSpaceParam } from 'hooks/useGetSpaceParam'
-import Include from '../../icons/Include.svg'
-import Exclude from '../../icons/Exclude.svg'
+import Include from '../../icons/Include.svg?url'
+import Exclude from '../../icons/Exclude.svg?url'
 import BranchProtectionForm from './BranchProtectionForm/BranchProtectionForm'
 import BranchProtectionHeader from './BranchProtectionHeader/BranchProtectionHeader'
 import css from './BranchProtectionListing.module.scss'
@@ -145,6 +145,7 @@ const BranchProtectionListing = (props: { activeTab: string }) => {
           const fieldsToCheck = {
             'pullreq.approvals.require_minimum_count': getString('branchProtection.requireMinReviewersTitle'),
             'pullreq.approvals.require_code_owners': getString('branchProtection.reqReviewFromCodeOwnerTitle'),
+            'pullreq.approvals.require_no_change_request': getString('branchProtection.reqResOfChanges'),
             'pullreq.approvals.require_latest_commit': getString('branchProtection.reqNewChangesTitle'),
             'pullreq.comments.require_resolve_all': getString('branchProtection.reqCommentResolutionTitle'),
             'pullreq.status_checks.all_must_succeed': getString('branchProtection.reqStatusChecksTitle'),

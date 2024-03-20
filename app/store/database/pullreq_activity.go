@@ -138,7 +138,7 @@ func (s *PullReqActivityStore) Find(ctx context.Context, id int64) (*types.PullR
 
 	dst := &pullReqActivity{}
 	if err := db.GetContext(ctx, dst, sqlQuery, id); err != nil {
-		return nil, database.ProcessSQLErrorf(err, "Failed to find pull request activity")
+		return nil, database.ProcessSQLErrorf(ctx, err, "Failed to find pull request activity")
 	}
 
 	return s.mapPullReqActivity(ctx, dst), nil
@@ -209,11 +209,11 @@ func (s *PullReqActivityStore) Create(ctx context.Context, act *types.PullReqAct
 
 	query, arg, err := db.BindNamed(sqlQuery, mapInternalPullReqActivity(act))
 	if err != nil {
-		return database.ProcessSQLErrorf(err, "Failed to bind pull request activity object")
+		return database.ProcessSQLErrorf(ctx, err, "Failed to bind pull request activity object")
 	}
 
 	if err = db.QueryRowContext(ctx, query, arg...).Scan(&act.ID); err != nil {
-		return database.ProcessSQLErrorf(err, "Failed to insert pull request activity")
+		return database.ProcessSQLErrorf(ctx, err, "Failed to insert pull request activity")
 	}
 
 	return nil
@@ -284,17 +284,17 @@ func (s *PullReqActivityStore) Update(ctx context.Context, act *types.PullReqAct
 
 	query, arg, err := db.BindNamed(sqlQuery, dbAct)
 	if err != nil {
-		return database.ProcessSQLErrorf(err, "Failed to bind pull request activity object")
+		return database.ProcessSQLErrorf(ctx, err, "Failed to bind pull request activity object")
 	}
 
 	result, err := db.ExecContext(ctx, query, arg...)
 	if err != nil {
-		return database.ProcessSQLErrorf(err, "Failed to update pull request activity")
+		return database.ProcessSQLErrorf(ctx, err, "Failed to update pull request activity")
 	}
 
 	count, err := result.RowsAffected()
 	if err != nil {
-		return database.ProcessSQLErrorf(err, "Failed to get number of updated rows")
+		return database.ProcessSQLErrorf(ctx, err, "Failed to get number of updated rows")
 	}
 
 	if count == 0 {
@@ -374,47 +374,25 @@ func (s *PullReqActivityStore) Count(ctx context.Context,
 	var count int64
 	err = db.QueryRowContext(ctx, sql, args...).Scan(&count)
 	if err != nil {
-		return 0, database.ProcessSQLErrorf(err, "Failed executing count query")
+		return 0, database.ProcessSQLErrorf(ctx, err, "Failed executing count query")
 	}
 
 	return count, nil
 }
 
-// List returns a list of pull requests for a repo.
+// List returns a list of pull request activities for a PR.
 func (s *PullReqActivityStore) List(ctx context.Context,
 	prID int64,
-	opts *types.PullReqActivityFilter,
+	filter *types.PullReqActivityFilter,
 ) ([]*types.PullReqActivity, error) {
 	stmt := database.Builder.
 		Select(pullreqActivityColumns).
 		From("pullreq_activities").
 		Where("pullreq_activity_pullreq_id = ?", prID)
 
-	if len(opts.Types) == 1 {
-		stmt = stmt.Where("pullreq_activity_type = ?", opts.Types[0])
-	} else if len(opts.Types) > 1 {
-		stmt = stmt.Where(squirrel.Eq{"pullreq_activity_type": opts.Types})
-	}
+	stmt = applyFilter(filter, stmt)
 
-	if len(opts.Kinds) == 1 {
-		stmt = stmt.Where("pullreq_activity_kind = ?", opts.Kinds[0])
-	} else if len(opts.Kinds) > 1 {
-		stmt = stmt.Where(squirrel.Eq{"pullreq_activity_kind": opts.Kinds})
-	}
-
-	if opts.After != 0 {
-		stmt = stmt.Where("pullreq_activity_created > ?", opts.After)
-	}
-
-	if opts.Before != 0 {
-		stmt = stmt.Where("pullreq_activity_created < ?", opts.Before)
-	}
-
-	if opts.Limit > 0 {
-		stmt = stmt.Limit(database.Limit(opts.Limit))
-	}
-
-	stmt = stmt.OrderBy("pullreq_activity_order asc", "pullreq_activity_sub_order asc")
+	stmt.OrderBy("pullreq_activity_order asc", "pullreq_activity_sub_order asc")
 
 	sql, args, err := stmt.ToSql()
 	if err != nil {
@@ -426,7 +404,7 @@ func (s *PullReqActivityStore) List(ctx context.Context,
 	db := dbtx.GetAccessor(ctx, s.db)
 
 	if err = db.SelectContext(ctx, &dst, sql, args...); err != nil {
-		return nil, database.ProcessSQLErrorf(err, "Failed executing pull request activity list query")
+		return nil, database.ProcessSQLErrorf(ctx, err, "Failed executing pull request activity list query")
 	}
 
 	result, err := s.mapSlicePullReqActivity(ctx, dst)
@@ -435,6 +413,30 @@ func (s *PullReqActivityStore) List(ctx context.Context,
 	}
 
 	return result, nil
+}
+
+// ListAuthorIDs returns a list of pull request activity author ids in a thread for a PR.
+func (s *PullReqActivityStore) ListAuthorIDs(ctx context.Context, prID int64, order int64) ([]int64, error) {
+	stmt := database.Builder.
+		Select("DISTINCT pullreq_activity_created_by").
+		From("pullreq_activities").
+		Where("pullreq_activity_pullreq_id = ?", prID).
+		Where("pullreq_activity_order = ?", order)
+
+	sql, args, err := stmt.ToSql()
+	if err != nil {
+		return nil, errors.Wrap(err, "Failed to convert pull request activity query to sql")
+	}
+
+	var dst []int64
+
+	db := dbtx.GetAccessor(ctx, s.db)
+
+	if err = db.SelectContext(ctx, &dst, sql, args...); err != nil {
+		return nil, database.ProcessSQLErrorf(ctx, err, "Failed executing pull request activity list query")
+	}
+
+	return dst, nil
 }
 
 func (s *PullReqActivityStore) CountUnresolved(ctx context.Context, prID int64) (int, error) {
@@ -457,7 +459,7 @@ func (s *PullReqActivityStore) CountUnresolved(ctx context.Context, prID int64) 
 	var count int
 	err = db.QueryRowContext(ctx, sql, args...).Scan(&count)
 	if err != nil {
-		return 0, database.ProcessSQLErrorf(err, "Failed executing count unresolved query")
+		return 0, database.ProcessSQLErrorf(ctx, err, "Failed executing count unresolved query")
 	}
 
 	return count, nil
@@ -604,4 +606,35 @@ func (s *PullReqActivityStore) mapSlicePullReqActivity(
 	}
 
 	return m, nil
+}
+
+func applyFilter(
+	filter *types.PullReqActivityFilter,
+	stmt squirrel.SelectBuilder,
+) squirrel.SelectBuilder {
+	if len(filter.Types) == 1 {
+		stmt = stmt.Where("pullreq_activity_type = ?", filter.Types[0])
+	} else if len(filter.Types) > 1 {
+		stmt = stmt.Where(squirrel.Eq{"pullreq_activity_type": filter.Types})
+	}
+
+	if len(filter.Kinds) == 1 {
+		stmt = stmt.Where("pullreq_activity_kind = ?", filter.Kinds[0])
+	} else if len(filter.Kinds) > 1 {
+		stmt = stmt.Where(squirrel.Eq{"pullreq_activity_kind": filter.Kinds})
+	}
+
+	if filter.After != 0 {
+		stmt = stmt.Where("pullreq_activity_created > ?", filter.After)
+	}
+
+	if filter.Before != 0 {
+		stmt = stmt.Where("pullreq_activity_created < ?", filter.Before)
+	}
+
+	if filter.Limit > 0 {
+		stmt = stmt.Limit(database.Limit(filter.Limit))
+	}
+
+	return stmt
 }

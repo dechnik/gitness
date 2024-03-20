@@ -14,13 +14,6 @@
  * limitations under the License.
  */
 
-//
-// This file contains global settings for the whole application. Do not store page or
-// component specific consts here.
-//
-
-export const PULL_REQUEST_DESCRIPTION_SIZE_LIMIT = 65_536
-
-// Browser has performance issue rendering text with long line. Use a max line size
-// to tell user to cut long line into multiple smaller ones.
-export const MAX_TEXT_LINE_SIZE_LIMIT = 5_000
+export function useGetSettingValue<T = Record<string, boolean>>() {
+  return {} as T
+}
