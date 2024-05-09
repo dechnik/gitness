@@ -19,28 +19,37 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strconv"
+
+	"github.com/harness/gitness/git/sha"
 )
 
 type DiffStatus byte
 
 const (
-	DiffStatusModified = 'M'
-	DiffStatusAdded    = 'A'
-	DiffStatusDeleted  = 'D'
-	DiffStatusRenamed  = 'R'
-	DiffStatusCopied   = 'C'
-	DiffStatusType     = 'T'
+	DiffStatusModified DiffStatus = 'M'
+	DiffStatusAdded    DiffStatus = 'A'
+	DiffStatusDeleted  DiffStatus = 'D'
+	DiffStatusRenamed  DiffStatus = 'R'
+	DiffStatusCopied   DiffStatus = 'C'
+	DiffStatusType     DiffStatus = 'T'
 )
 
-type DiffRawFile struct {
-	OldBlobSHA string
-	NewBlobSHA string
-	Status     byte
-	OldPath    string
-	Path       string
+func (s DiffStatus) String() string {
+	return fmt.Sprintf("%c", s)
 }
 
-var regexpDiffRaw = regexp.MustCompile(`:\d{6} \d{6} ([0-9a-f]+) ([0-9a-f]+) (\w)(\d*)`)
+type DiffRawFile struct {
+	OldFileMode string
+	NewFileMode string
+	OldBlobSHA  string
+	NewBlobSHA  string
+	Status      DiffStatus
+	OldPath     string
+	Path        string
+}
+
+var regexpDiffRaw = regexp.MustCompile(`:(\d{6}) (\d{6}) ([0-9a-f]+) ([0-9a-f]+) (\w)(\d*)`)
 
 // DiffRaw parses raw git diff output (git diff --raw). Each entry (a line) is a changed file.
 // The format is:
@@ -72,7 +81,7 @@ func DiffRaw(r io.Reader) ([]DiffRawFile, error) {
 
 		path = scan.Text()
 
-		status := groups[3][0]
+		status := DiffStatus(groups[5][0])
 		switch status {
 		case DiffStatusRenamed, DiffStatusCopied:
 			if !scan.Scan() {
@@ -86,15 +95,64 @@ func DiffRaw(r io.Reader) ([]DiffRawFile, error) {
 		}
 
 		result = append(result, DiffRawFile{
-			OldBlobSHA: groups[1],
-			NewBlobSHA: groups[2],
-			Status:     status,
-			OldPath:    oldPath,
-			Path:       path,
+			OldFileMode: groups[1],
+			NewFileMode: groups[2],
+			OldBlobSHA:  groups[3],
+			NewBlobSHA:  groups[4],
+			Status:      status,
+			OldPath:     oldPath,
+			Path:        path,
 		})
 	}
 	if err := scan.Err(); err != nil {
 		return nil, fmt.Errorf("failed to scan raw diff: %w", scan.Err())
+	}
+
+	return result, nil
+}
+
+type BatchCheckObject struct {
+	SHA sha.SHA
+	// TODO: Use proper TreeNodeType
+	Type string
+	Size int64
+}
+
+var regexpBatchCheckObject = regexp.MustCompile(`^([0-9a-f]{40,64}) (\w+) (\d+)$`)
+
+func CatFileBatchCheckAllObjects(r io.Reader) ([]BatchCheckObject, error) {
+	var result []BatchCheckObject
+
+	scan := bufio.NewScanner(r)
+	scan.Split(ScanZeroSeparated)
+
+	for scan.Scan() {
+		line := scan.Text()
+		matches := regexpBatchCheckObject.FindStringSubmatch(line)
+
+		if len(matches) != 4 {
+			return nil, fmt.Errorf("failed to parse line: %q", line)
+		}
+
+		sha, err := sha.New(matches[1])
+		if err != nil {
+			return nil, fmt.Errorf("failed to create sha.SHA for %q: %w", matches[1], err)
+		}
+
+		sizeStr := matches[3]
+		size, err := strconv.ParseInt(sizeStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert size %q to int64: %w", sizeStr, err)
+		}
+
+		result = append(result, BatchCheckObject{
+			SHA:  sha,
+			Type: matches[2],
+			Size: size,
+		})
+	}
+	if err := scan.Err(); err != nil {
+		return nil, fmt.Errorf("failed to scan cat file batch check all objects: %w", scan.Err())
 	}
 
 	return result, nil

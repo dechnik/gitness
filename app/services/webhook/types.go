@@ -20,8 +20,11 @@ import (
 
 	"github.com/harness/gitness/app/url"
 	"github.com/harness/gitness/git"
+	gitenum "github.com/harness/gitness/git/enum"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
+
+	"github.com/rs/zerolog/log"
 )
 
 /*
@@ -117,6 +120,7 @@ type PullReqInfo struct {
 	State         enum.PullReqState `json:"state"`
 	IsDraft       bool              `json:"is_draft"`
 	Title         string            `json:"title"`
+	Description   string            `json:"description"`
 	SourceRepoID  int64             `json:"source_repo_id"`
 	SourceBranch  string            `json:"source_branch"`
 	TargetRepoID  int64             `json:"target_repo_id"`
@@ -133,6 +137,7 @@ func pullReqInfoFrom(pr *types.PullReq, repo *types.Repository, urlProvider url.
 		State:         pr.State,
 		IsDraft:       pr.IsDraft,
 		Title:         pr.Title,
+		Description:   pr.Description,
 		SourceRepoID:  pr.SourceRepoID,
 		SourceBranch:  pr.SourceBranch,
 		TargetRepoID:  pr.TargetRepoID,
@@ -183,14 +188,35 @@ type CommitInfo struct {
 
 // commitInfoFrom gets the CommitInfo from a git.Commit.
 func commitInfoFrom(commit git.Commit) CommitInfo {
+	var added []string
+	var removed []string
+	var modified []string
+
+	for _, stat := range commit.FileStats {
+		switch {
+		case stat.Status == gitenum.FileDiffStatusModified:
+			modified = append(modified, stat.Path)
+		case stat.Status == gitenum.FileDiffStatusRenamed:
+			added = append(added, stat.Path)
+			removed = append(removed, stat.OldPath)
+		case stat.Status == gitenum.FileDiffStatusDeleted:
+			removed = append(removed, stat.Path)
+		case stat.Status == gitenum.FileDiffStatusAdded || stat.Status == gitenum.FileDiffStatusCopied:
+			added = append(added, stat.Path)
+		case stat.Status == gitenum.FileDiffStatusUndefined:
+		default:
+			log.Warn().Msgf("unknown status %q for path %q", stat.Status, stat.Path)
+		}
+	}
+
 	return CommitInfo{
-		SHA:       commit.SHA,
+		SHA:       commit.SHA.String(),
 		Message:   commit.Message,
 		Author:    signatureInfoFrom(commit.Author),
 		Committer: signatureInfoFrom(commit.Committer),
-		Added:     commit.FileStats.Added,
-		Removed:   commit.FileStats.Removed,
-		Modified:  commit.FileStats.Modified,
+		Added:     added,
+		Removed:   removed,
+		Modified:  modified,
 	}
 }
 

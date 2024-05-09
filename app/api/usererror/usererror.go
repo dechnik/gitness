@@ -88,6 +88,10 @@ var (
 		http.StatusLocked,
 		"The requested resource is temporarily locked, please retry the operation.",
 	)
+
+	// ErrEmptyRepoNeedsBranch is returned if no branch found on the githook post receieve for empty repositories.
+	ErrEmptyRepoNeedsBranch = New(http.StatusBadRequest,
+		"Pushing to an empty repository requires at least one branch with commits.")
 )
 
 // Error represents a json-encoded API error.
@@ -159,6 +163,11 @@ func Forbidden(message string) *Error {
 // NotFound returns a new user facing not found error.
 func NotFound(message string) *Error {
 	return New(http.StatusNotFound, message)
+}
+
+// NotFoundf returns a new user facing not found error.
+func NotFoundf(format string, args ...any) *Error {
+	return Newf(http.StatusNotFound, format, args...)
 }
 
 // ConflictWithPayload returns a new user facing conflict error with payload.

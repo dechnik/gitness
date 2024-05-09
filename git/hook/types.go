@@ -14,6 +14,8 @@
 
 package hook
 
+import "github.com/harness/gitness/git/sha"
+
 // Output represents the output of server hook api calls.
 type Output struct {
 	// Messages contains standard user facing messages.
@@ -28,25 +30,40 @@ type ReferenceUpdate struct {
 	// Ref is the full name of the reference that got updated.
 	Ref string `json:"ref"`
 	// Old is the old commmit hash (before the update).
-	Old string `json:"old"`
+	Old sha.SHA `json:"old"`
 	// New is the new commit hash (after the update).
-	New string `json:"new"`
+	New sha.SHA `json:"new"`
 }
 
-// PostReceiveInput represents the input of the post-receive git hook.
-type PostReceiveInput struct {
-	// RefUpdates contains all references that got updated as part of the git operation.
-	RefUpdates []ReferenceUpdate `json:"ref_updates"`
+// Environment contains the information required to access a specific git environment.
+type Environment struct {
+	// AlternateObjectDirs contains any alternate object dirs required to access all objects of an operation.
+	AlternateObjectDirs []string `json:"alternate_object_dirs,omitempty"`
 }
 
 // PreReceiveInput represents the input of the pre-receive git hook.
 type PreReceiveInput struct {
+	// Environment contains the information required to access the git environment.
+	Environment Environment `json:"environment"`
+
 	// RefUpdates contains all references that are being updated as part of the git operation.
 	RefUpdates []ReferenceUpdate `json:"ref_updates"`
 }
 
 // UpdateInput represents the input of the update git hook.
 type UpdateInput struct {
+	// Environment contains the information required to access the git environment.
+	Environment Environment `json:"environment"`
+
 	// RefUpdate contains information about the reference that is being updated.
 	RefUpdate ReferenceUpdate `json:"ref_update"`
+}
+
+// PostReceiveInput represents the input of the post-receive git hook.
+type PostReceiveInput struct {
+	// Environment contains the information required to access the git environment.
+	Environment Environment `json:"environment"`
+
+	// RefUpdates contains all references that got updated as part of the git operation.
+	RefUpdates []ReferenceUpdate `json:"ref_updates"`
 }

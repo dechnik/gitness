@@ -58,6 +58,7 @@ export interface ImportFormData {
   password: string
   name: string
   description: string
+  importPipelineLabel: boolean
 }
 
 export interface ExportFormData {
@@ -107,7 +108,14 @@ export enum GitContentType {
 export enum SettingsTab {
   webhooks = 'webhook',
   general = '/',
-  branchProtection = 'rules'
+  branchProtection = 'rules',
+  security = 'security'
+}
+
+export enum VulnerabilityScanningType {
+  DETECT = 'detect',
+  BLOCK = 'block',
+  DISABLED = 'disabled'
 }
 
 export enum GitBranchType {
@@ -188,6 +196,12 @@ export const PullRequestFilterOption = {
   DRAFT: 'draft',
   YOURS: 'yours',
   ALL: 'all'
+}
+
+export enum MergeStrategy {
+  MERGE = 'merge',
+  SQUASH = 'squash',
+  REBASE = 'rebase'
 }
 
 export const CodeIcon = {

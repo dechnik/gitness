@@ -18,8 +18,6 @@ import (
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/harness/gitness/git/types"
 )
 
 //nolint:gocognit // it's a unit test!!!
@@ -49,14 +47,14 @@ func TestDiffCut(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		params       types.DiffCutParams
+		params       DiffCutParams
 		expCutHeader string
 		expCut       []string
 		expError     error
 	}{
 		{
 			name: "at-'+6,7,8':new",
-			params: types.DiffCutParams{
+			params: DiffCutParams{
 				LineStart: 7, LineStartNew: true,
 				LineEnd: 7, LineEndNew: true,
 				BeforeLines: 0, AfterLines: 0,
@@ -68,7 +66,7 @@ func TestDiffCut(t *testing.T) {
 		},
 		{
 			name: "at-'+6,7,8':new-with-lines-around",
-			params: types.DiffCutParams{
+			params: DiffCutParams{
 				LineStart: 7, LineStartNew: true,
 				LineEnd: 7, LineEndNew: true,
 				BeforeLines: 1, AfterLines: 2,
@@ -80,7 +78,7 @@ func TestDiffCut(t *testing.T) {
 		},
 		{
 			name: "at-'+0':new-with-lines-around",
-			params: types.DiffCutParams{
+			params: DiffCutParams{
 				LineStart: 1, LineStartNew: true,
 				LineEnd: 1, LineEndNew: true,
 				BeforeLines: 3, AfterLines: 3,
@@ -92,7 +90,7 @@ func TestDiffCut(t *testing.T) {
 		},
 		{
 			name: "at-'-13':one-with-lines-around",
-			params: types.DiffCutParams{
+			params: DiffCutParams{
 				LineStart: 13, LineStartNew: false,
 				LineEnd: 13, LineEndNew: false,
 				BeforeLines: 1, AfterLines: 1,
@@ -104,11 +102,11 @@ func TestDiffCut(t *testing.T) {
 		},
 		{
 			name: "at-'-13':mixed",
-			params: types.DiffCutParams{
+			params: DiffCutParams{
 				LineStart: 7, LineStartNew: false,
 				LineEnd: 7, LineEndNew: true,
 				BeforeLines: 0, AfterLines: 0,
-				LineLimit: 1000,
+				LineLimit: 0,
 			},
 			expCutHeader: "@@ -7,2 +7 @@",
 			expCut:       []string{"-7", "-8", "+6,7,8"},
@@ -167,7 +165,7 @@ index 541cb64f..047d7ee2 100644
 
 	hh, h, err := DiffCut(
 		strings.NewReader(input),
-		types.DiffCutParams{
+		DiffCutParams{
 			LineStart:    3,
 			LineStartNew: true,
 			LineEnd:      3,
@@ -182,13 +180,13 @@ index 541cb64f..047d7ee2 100644
 		return
 	}
 
-	expectedHH := types.HunkHeader{OldLine: 2, OldSpan: 0, NewLine: 3, NewSpan: 1}
+	expectedHH := HunkHeader{OldLine: 2, OldSpan: 0, NewLine: 3, NewSpan: 1}
 	if expectedHH != hh {
 		t.Errorf("expected hunk header: %+v, but got: %+v", expectedHH, hh)
 	}
 
-	expectedHunkLines := types.Hunk{
-		HunkHeader: types.HunkHeader{OldLine: 2, OldSpan: 0, NewLine: 2, NewSpan: 2},
+	expectedHunkLines := Hunk{
+		HunkHeader: HunkHeader{OldLine: 2, OldSpan: 0, NewLine: 2, NewSpan: 2},
 		Lines:      []string{"+456", "+789"},
 	}
 	if !reflect.DeepEqual(expectedHunkLines, h) {
@@ -210,7 +208,7 @@ index af7864ba..541cb64f 100644
 `
 	hh, h, err := DiffCut(
 		strings.NewReader(input),
-		types.DiffCutParams{
+		DiffCutParams{
 			LineStart:    1,
 			LineStartNew: true,
 			LineEnd:      1,
@@ -225,17 +223,105 @@ index af7864ba..541cb64f 100644
 		return
 	}
 
-	expectedHH := types.HunkHeader{OldLine: 1, OldSpan: 3, NewLine: 1, NewSpan: 1}
+	expectedHH := HunkHeader{OldLine: 1, OldSpan: 3, NewLine: 1, NewSpan: 1}
 	if expectedHH != hh {
 		t.Errorf("expected hunk header: %+v, but got: %+v", expectedHH, hh)
 	}
 
-	expectedHunkLines := types.Hunk{
-		HunkHeader: types.HunkHeader{OldLine: 1, OldSpan: 3, NewLine: 1, NewSpan: 1},
+	expectedHunkLines := Hunk{
+		HunkHeader: HunkHeader{OldLine: 1, OldSpan: 3, NewLine: 1, NewSpan: 1},
 		Lines:      []string{"-123", "-456", "-789", "+test"},
 	}
 	if !reflect.DeepEqual(expectedHunkLines, h) {
 		t.Errorf("expected hunk header: %+v, but got: %+v", expectedHunkLines, h)
+	}
+}
+
+func TestBlobCut(t *testing.T) {
+	const input = `1
+2
+3
+4
+5
+6`
+
+	tests := []struct {
+		name         string
+		params       DiffCutParams
+		expCutHeader CutHeader
+		expCut       Cut
+		expError     error
+	}{
+		{
+			name:         "first 3 lines",
+			params:       DiffCutParams{LineStart: 1, LineEnd: 3, LineLimit: 40},
+			expCutHeader: CutHeader{Line: 1, Span: 3},
+			expCut:       Cut{CutHeader: CutHeader{Line: 1, Span: 3}, Lines: []string{"1", "2", "3"}},
+		},
+		{
+			name:         "last 2 lines",
+			params:       DiffCutParams{LineStart: 5, LineEnd: 6, LineLimit: 40},
+			expCutHeader: CutHeader{Line: 5, Span: 2},
+			expCut:       Cut{CutHeader: CutHeader{Line: 5, Span: 2}, Lines: []string{"5", "6"}},
+		},
+		{
+			name:         "first 3 lines with 1 more",
+			params:       DiffCutParams{LineStart: 1, LineEnd: 3, BeforeLines: 1, AfterLines: 1, LineLimit: 40},
+			expCutHeader: CutHeader{Line: 1, Span: 3},
+			expCut:       Cut{CutHeader: CutHeader{Line: 1, Span: 4}, Lines: []string{"1", "2", "3", "4"}},
+		},
+		{
+			name:         "last 2 lines with 2 more",
+			params:       DiffCutParams{LineStart: 5, LineEnd: 6, BeforeLines: 2, AfterLines: 2, LineLimit: 40},
+			expCutHeader: CutHeader{Line: 5, Span: 2},
+			expCut:       Cut{CutHeader: CutHeader{Line: 3, Span: 4}, Lines: []string{"3", "4", "5", "6"}},
+		},
+		{
+			name:         "mid range",
+			params:       DiffCutParams{LineStart: 2, LineEnd: 4, BeforeLines: 100, AfterLines: 100, LineLimit: 40},
+			expCutHeader: CutHeader{Line: 2, Span: 3},
+			expCut:       Cut{CutHeader: CutHeader{Line: 1, Span: 6}, Lines: []string{"1", "2", "3", "4", "5", "6"}},
+		},
+		{
+			name:     "out of range 1",
+			params:   DiffCutParams{LineStart: 15, LineEnd: 17, LineLimit: 40},
+			expError: ErrHunkNotFound,
+		},
+		{
+			name:     "out of range 2",
+			params:   DiffCutParams{LineStart: 5, LineEnd: 7, BeforeLines: 1, AfterLines: 1, LineLimit: 40},
+			expError: ErrHunkNotFound,
+		},
+		{
+			name:         "limited",
+			params:       DiffCutParams{LineStart: 3, LineEnd: 4, BeforeLines: 1, AfterLines: 1, LineLimit: 3},
+			expCutHeader: CutHeader{Line: 3, Span: 2},
+			expCut:       Cut{CutHeader: CutHeader{Line: 2, Span: 3}, Lines: []string{"2", "3", "4"}},
+		},
+		{
+			name:         "unlimited",
+			params:       DiffCutParams{LineStart: 1, LineEnd: 6, BeforeLines: 1, AfterLines: 1, LineLimit: 0},
+			expCutHeader: CutHeader{Line: 1, Span: 6},
+			expCut:       Cut{CutHeader: CutHeader{Line: 1, Span: 6}, Lines: []string{"1", "2", "3", "4", "5", "6"}},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ch, c, err := BlobCut(strings.NewReader(input), test.params)
+			if err != test.expError { //nolint:errorlint // it's a unit test and no errors are wrapped
+				t.Errorf("test failed with error: %s", err.Error())
+				return
+			}
+
+			if want, got := test.expCutHeader, ch; want != got {
+				t.Errorf("cut header: want=%+v got: %+v", want, got)
+			}
+
+			if want, got := test.expCut, c; !reflect.DeepEqual(want, got) {
+				t.Errorf("cut: want=%+v got: %+v", want, got)
+			}
+		})
 	}
 }
 

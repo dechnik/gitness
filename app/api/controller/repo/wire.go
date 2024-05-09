@@ -21,13 +21,17 @@ import (
 	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/app/services/importer"
 	"github.com/harness/gitness/app/services/keywordsearch"
+	"github.com/harness/gitness/app/services/locker"
 	"github.com/harness/gitness/app/services/protection"
+	"github.com/harness/gitness/app/services/settings"
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/app/url"
+	"github.com/harness/gitness/audit"
 	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/lock"
 	"github.com/harness/gitness/store/database/dbtx"
 	"github.com/harness/gitness/types"
+	"github.com/harness/gitness/types/check"
 
 	"github.com/google/wire"
 )
@@ -47,6 +51,7 @@ func ProvideController(
 	pipelineStore store.PipelineStore,
 	principalStore store.PrincipalStore,
 	ruleStore store.RuleStore,
+	settings *settings.Service,
 	principalInfoCache store.PrincipalInfoCache,
 	protectionManager *protection.Manager,
 	rpcClient git.Interface,
@@ -55,11 +60,19 @@ func ProvideController(
 	reporeporter *repoevents.Reporter,
 	indexer keywordsearch.Indexer,
 	limiter limiter.ResourceLimiter,
+	locker *locker.Locker,
+	auditService audit.Service,
 	mtxManager lock.MutexManager,
+	identifierCheck check.RepoIdentifier,
+	repoChecks Check,
 ) *Controller {
 	return NewController(config, tx, urlProvider,
 		authorizer, repoStore,
 		spaceStore, pipelineStore,
-		principalStore, ruleStore, principalInfoCache, protectionManager,
-		rpcClient, importer, codeOwners, reporeporter, indexer, limiter, mtxManager)
+		principalStore, ruleStore, settings, principalInfoCache, protectionManager, rpcClient, importer,
+		codeOwners, reporeporter, indexer, limiter, locker, auditService, mtxManager, identifierCheck, repoChecks)
+}
+
+func ProvideRepoCheck() Check {
+	return NewNoOpRepoChecks()
 }

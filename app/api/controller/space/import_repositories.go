@@ -23,7 +23,9 @@ import (
 	"github.com/harness/gitness/app/api/controller/limiter"
 	"github.com/harness/gitness/app/api/usererror"
 	"github.com/harness/gitness/app/auth"
+	"github.com/harness/gitness/app/paths"
 	"github.com/harness/gitness/app/services/importer"
+	"github.com/harness/gitness/audit"
 	"github.com/harness/gitness/store"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
@@ -96,6 +98,12 @@ func (c *Controller) ImportRepositories(
 	duplicateRepos := make([]*types.Repository, 0, len(remoteRepositories))
 
 	err = c.tx.WithTx(ctx, func(ctx context.Context) error {
+		// lock the space for update during repo creation to prevent racing conditions with space soft delete.
+		space, err = c.spaceStore.FindForUpdate(ctx, space.ID)
+		if err != nil {
+			return fmt.Errorf("failed to find the parent space: %w", err)
+		}
+
 		if err := c.resourceLimiter.RepoCount(
 			ctx, space.ID, len(remoteRepositories)); err != nil {
 			return fmt.Errorf("resource limit exceeded: %w", limiter.ErrMaxNumReposReached)
@@ -127,7 +135,13 @@ func (c *Controller) ImportRepositories(
 		}
 
 		jobGroupID := fmt.Sprintf("space-import-%d", space.ID)
-		err = c.importer.RunMany(ctx, jobGroupID, provider, repoIDs, cloneURLs, in.Pipelines)
+		err = c.importer.RunMany(ctx,
+			jobGroupID,
+			provider,
+			repoIDs,
+			cloneURLs,
+			in.Pipelines,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to start import repository jobs: %w", err)
 		}
@@ -136,6 +150,19 @@ func (c *Controller) ImportRepositories(
 	})
 	if err != nil {
 		return ImportRepositoriesOutput{}, err
+	}
+
+	for _, repo := range repos {
+		err = c.auditService.Log(ctx,
+			session.Principal,
+			audit.NewResource(audit.ResourceTypeRepository, repo.Identifier),
+			audit.ActionCreated,
+			paths.Parent(repo.Path),
+			audit.WithNewObject(repo),
+		)
+		if err != nil {
+			log.Warn().Msgf("failed to insert audit log for import repository operation: %s", err)
+		}
 	}
 
 	return ImportRepositoriesOutput{ImportingRepos: repos, DuplicateRepos: duplicateRepos}, nil

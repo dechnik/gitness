@@ -22,6 +22,7 @@ import (
 	"github.com/harness/gitness/app/api/usererror"
 	"github.com/harness/gitness/app/auth"
 	"github.com/harness/gitness/git"
+	"github.com/harness/gitness/git/sha"
 	"github.com/harness/gitness/types/enum"
 )
 
@@ -31,11 +32,11 @@ func (c *Controller) Raw(ctx context.Context,
 	session *auth.Session,
 	repoRef string,
 	gitRef string,
-	repoPath string,
-) (io.ReadCloser, int64, error) {
+	path string,
+) (io.ReadCloser, int64, sha.SHA, error) {
 	repo, err := c.getRepoCheckAccess(ctx, session, repoRef, enum.PermissionRepoView, true)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, sha.Nil, err
 	}
 
 	// set gitRef to default branch in case an empty reference was provided
@@ -48,18 +49,18 @@ func (c *Controller) Raw(ctx context.Context,
 	treeNodeOutput, err := c.git.GetTreeNode(ctx, &git.GetTreeNodeParams{
 		ReadParams:          readParams,
 		GitREF:              gitRef,
-		Path:                repoPath,
+		Path:                path,
 		IncludeLatestCommit: false,
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read tree node: %w", err)
+		return nil, 0, sha.Nil, fmt.Errorf("failed to read tree node: %w", err)
 	}
 
 	// viewing Raw content is only supported for blob content
 	if treeNodeOutput.Node.Type != git.TreeNodeTypeBlob {
-		return nil, 0, usererror.BadRequestf(
+		return nil, 0, sha.Nil, usererror.BadRequestf(
 			"Object in '%s' at '/%s' is of type '%s'. Only objects of type %s support raw viewing.",
-			gitRef, repoPath, treeNodeOutput.Node.Type, git.TreeNodeTypeBlob)
+			gitRef, path, treeNodeOutput.Node.Type, git.TreeNodeTypeBlob)
 	}
 
 	blobReader, err := c.git.GetBlob(ctx, &git.GetBlobParams{
@@ -68,8 +69,8 @@ func (c *Controller) Raw(ctx context.Context,
 		SizeLimit:  0, // no size limit, we stream whatever data there is
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to read blob: %w", err)
+		return nil, 0, sha.Nil, fmt.Errorf("failed to read blob: %w", err)
 	}
 
-	return blobReader.Content, blobReader.ContentSize, nil
+	return blobReader.Content, blobReader.ContentSize, blobReader.SHA, nil
 }

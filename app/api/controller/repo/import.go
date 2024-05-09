@@ -20,9 +20,12 @@ import (
 
 	"github.com/harness/gitness/app/api/controller/limiter"
 	"github.com/harness/gitness/app/auth"
+	"github.com/harness/gitness/app/paths"
 	"github.com/harness/gitness/app/services/importer"
+	"github.com/harness/gitness/audit"
 	"github.com/harness/gitness/types"
-	"github.com/harness/gitness/types/check"
+
+	"github.com/rs/zerolog/log"
 )
 
 type ImportInput struct {
@@ -67,12 +70,23 @@ func (c *Controller) Import(ctx context.Context, session *auth.Session, in *Impo
 			c.publicResourceCreationEnabled,
 		)
 
+		// lock the space for update during repo creation to prevent racing conditions with space soft delete.
+		parentSpace, err = c.spaceStore.FindForUpdate(ctx, parentSpace.ID)
+		if err != nil {
+			return fmt.Errorf("failed to find the parent space: %w", err)
+		}
+
 		err = c.repoStore.Create(ctx, repo)
 		if err != nil {
 			return fmt.Errorf("failed to create repository in storage: %w", err)
 		}
 
-		err = c.importer.Run(ctx, provider, repo, remoteRepository.CloneURL, in.Pipelines)
+		err = c.importer.Run(ctx,
+			provider,
+			repo,
+			remoteRepository.CloneURL,
+			in.Pipelines,
+		)
 		if err != nil {
 			return fmt.Errorf("failed to start import repository job: %w", err)
 		}
@@ -84,6 +98,17 @@ func (c *Controller) Import(ctx context.Context, session *auth.Session, in *Impo
 	}
 
 	repo.GitURL = c.urlProvider.GenerateGITCloneURL(repo.Path)
+
+	err = c.auditService.Log(ctx,
+		session.Principal,
+		audit.NewResource(audit.ResourceTypeRepository, repo.Identifier),
+		audit.ActionCreated,
+		paths.Parent(repo.Path),
+		audit.WithNewObject(repo),
+	)
+	if err != nil {
+		log.Warn().Msgf("failed to insert audit log for import repository operation: %s", err)
+	}
 
 	return repo, nil
 }
@@ -98,7 +123,7 @@ func (c *Controller) sanitizeImportInput(in *ImportInput) error {
 		return err
 	}
 
-	if err := check.RepoIdentifier(in.Identifier); err != nil {
+	if err := c.identifierCheck(in.Identifier); err != nil {
 		return err
 	}
 

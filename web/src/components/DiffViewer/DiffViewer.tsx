@@ -33,6 +33,7 @@ import cx from 'classnames'
 import * as Diff2Html from 'diff2html'
 import { Render } from 'react-jsx-match'
 import { Link } from 'react-router-dom'
+import { useInView } from 'react-intersection-observer'
 import { Diff2HtmlUI } from 'diff2html/lib-esm/ui/js/diff2html-ui'
 import { Icon } from '@harnessio/icons'
 import { Color } from '@harnessio/design-system'
@@ -49,6 +50,7 @@ import { useCustomEventListener } from 'hooks/useEventListener'
 import { useShowRequestError } from 'hooks/useShowRequestError'
 import { getErrorMessage, isInViewport } from 'utils/Utils'
 import { createRequestIdleCallbackTaskPool } from 'utils/Task'
+import { useResizeObserver } from 'hooks/useResizeObserver'
 import Config from 'Config'
 import {
   DIFF2HTML_CONFIG,
@@ -151,6 +153,43 @@ const DiffViewerInternal: React.FC<DiffViewerProps> = ({
   const [dirty, setDirty] = useState(false)
   const isMounted = useIsMounted()
   const [useFullDiff, setUseFullDiff] = useState(!!memorizedState.get(diff.filePath)?.useFullDiff)
+  const { ref, inView } = useInView({
+    rootMargin: `500px 0px 500px 0px`,
+    initialInView: true
+  })
+  const setContainerRef = useCallback(
+    node => {
+      containerRef.current = node
+      ref(node)
+    },
+    [ref]
+  )
+
+  useResizeObserver(
+    contentRef,
+    useCallback(
+      dom => {
+        if (isMounted.current && dom) {
+          dom.style.setProperty(BLOCK_HEIGHT, dom.clientHeight + 'px')
+        }
+      },
+      [isMounted]
+    )
+  )
+
+  useEffect(() => {
+    let taskId = 0
+    if (inView) {
+      taskId = scheduleLowPriorityTask(() => {
+        if (isMounted.current && contentRef.current) contentRef.current.classList.remove(css.hidden)
+      })
+    } else {
+      taskId = scheduleLowPriorityTask(() => {
+        if (isMounted.current && contentRef.current) contentRef.current.classList.add(css.hidden)
+      })
+    }
+    return () => cancelTask(taskId)
+  }, [inView, isMounted])
 
   //
   // Handling custom events sent to DiffViewer from external components/features
@@ -247,7 +286,7 @@ const DiffViewerInternal: React.FC<DiffViewerProps> = ({
       let taskId = 0
 
       if (!renderCustomContent && !collapsed) {
-        if (isInViewport(containerRef.current as Element)) {
+        if (isInViewport(containerRef.current as Element, 1000)) {
           renderDiffAndComments()
         } else {
           taskId = scheduleLowPriorityTask(renderDiffAndComments)
@@ -339,7 +378,7 @@ const DiffViewerInternal: React.FC<DiffViewerProps> = ({
 
   return (
     <Container
-      ref={containerRef}
+      ref={setContainerRef}
       id={diff.containerId}
       className={cx(css.main, { [css.readOnly]: readOnly })}
       data-diff-file-path={diff.filePath}
@@ -388,7 +427,7 @@ const DiffViewerInternal: React.FC<DiffViewerProps> = ({
               </Link>
               <CopyButton content={diff.filePath} icon={CodeIcon.Copy} size={ButtonSize.SMALL} />
             </Text>
-            <Container style={{ alignSelf: 'center' }} padding={{ left: 'small' }}>
+            <Container style={{ alignSelf: 'center' }} padding={{ left: 'small' }} margin={{ right: 'small' }}>
               <Layout.Horizontal spacing="xsmall">
                 <Render when={diff.addedLines || diff.isNew}>
                   <Text tag="span" className={css.addedLines}>
@@ -487,6 +526,8 @@ const DiffViewerInternal: React.FC<DiffViewerProps> = ({
     </Container>
   )
 }
+
+const BLOCK_HEIGHT = '--block-height'
 
 export enum DiffViewerEvent {
   SCROLL_INTO_VIEW = 'scrollIntoView'

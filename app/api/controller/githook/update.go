@@ -16,20 +16,33 @@ package githook
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/harness/gitness/app/auth"
 	"github.com/harness/gitness/git/hook"
 	"github.com/harness/gitness/types"
+	"github.com/harness/gitness/types/enum"
 )
 
 // Update executes the update hook for a git repository.
-//
-//nolint:revive // not yet implemented
 func (c *Controller) Update(
 	ctx context.Context,
+	rgit RestrictedGIT,
 	session *auth.Session,
 	in types.GithookUpdateInput,
 ) (hook.Output, error) {
+	repo, err := c.getRepoCheckAccess(ctx, session, in.RepoID, enum.PermissionRepoPush)
+	if err != nil {
+		return hook.Output{}, err
+	}
+
+	output := hook.Output{}
+
+	err = c.updateExtender.Extend(ctx, rgit, session, repo, in, &output)
+	if err != nil {
+		return hook.Output{}, fmt.Errorf("failed to extend update hook: %w", err)
+	}
+
 	// We currently don't have any update action (nothing planned as of now)
 	return hook.Output{}, nil
 }

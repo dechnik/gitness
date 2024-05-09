@@ -25,7 +25,6 @@ import (
 	events "github.com/harness/gitness/app/events/pullreq"
 	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git"
-	gittypes "github.com/harness/gitness/git/types"
 	"github.com/harness/gitness/store"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
@@ -108,17 +107,32 @@ func (c *Controller) CommentCreate(
 		return nil, fmt.Errorf("failed to find pull request by number: %w", err)
 	}
 
+	var parentAct *types.PullReqActivity
+	if in.IsReply() {
+		parentAct, err = c.checkIsReplyable(ctx, pr, in.ParentID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to verify reply: %w", err)
+		}
+	}
+
+	// fetch code snippet from git for code comments
 	var cut git.DiffCutOutput
 	if in.IsCodeComment() {
-		// fetch code snippet from git for code comments
 		cut, err = c.fetchDiffCut(ctx, repo, in)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	var act *types.PullReqActivity
+	// generate all metadata updates
+	var metadataUpdates []types.PullReqActivityMetadataUpdate
 
+	// suggestion metadata in case of code comments or code comment replies (don't restrict to either side for now).
+	if in.IsCodeComment() || (in.IsReply() && parentAct.IsValidCodeComment()) {
+		metadataUpdates = appendMetadataUpdateForSuggestions(metadataUpdates, in.Text)
+	}
+
+	var act *types.PullReqActivity
 	err = controller.TxOptLock(ctx, c.tx, func(ctx context.Context) error {
 		var err error
 
@@ -130,7 +144,7 @@ func (c *Controller) CommentCreate(
 			}
 		}
 
-		act = getCommentActivity(session, pr, in)
+		act = getCommentActivity(session, pr, in, metadataUpdates)
 
 		// In the switch the pull request activity (the code comment)
 		// is written to the DB (as code comment, a reply, or ordinary comment).
@@ -147,13 +161,6 @@ func (c *Controller) CommentCreate(
 			err = c.writeActivity(ctx, pr, act)
 
 		case in.IsReply():
-			var parentAct *types.PullReqActivity
-
-			parentAct, err = c.checkIsReplyable(ctx, pr, in.ParentID)
-			if err != nil {
-				return err
-			}
-
 			act.ParentID = &parentAct.ID
 			act.Kind = parentAct.Kind
 			_ = act.SetPayload(types.PullRequestActivityPayloadComment{})
@@ -273,7 +280,12 @@ func (c *Controller) writeReplyActivity(ctx context.Context, parent, act *types.
 	return nil
 }
 
-func getCommentActivity(session *auth.Session, pr *types.PullReq, in *CommentCreateInput) *types.PullReqActivity {
+func getCommentActivity(
+	session *auth.Session,
+	pr *types.PullReq,
+	in *CommentCreateInput,
+	metadataUpdates []types.PullReqActivityMetadataUpdate,
+) *types.PullReqActivity {
 	now := time.Now().UnixMilli()
 	act := &types.PullReqActivity{
 		ID:         0, // Will be populated in the data layer
@@ -298,6 +310,8 @@ func getCommentActivity(session *auth.Session, pr *types.PullReq, in *CommentCre
 		Author:     *session.Principal.ToPrincipalInfo(),
 	}
 
+	act.UpdateMetadata(metadataUpdates...)
+
 	return act
 }
 
@@ -307,7 +321,7 @@ func setAsCodeComment(a *types.PullReqActivity, cut git.DiffCutOutput, path, sou
 	a.Kind = enum.PullReqActivityKindChangeComment
 	a.CodeComment = &types.CodeCommentFields{
 		Outdated:     falseBool,
-		MergeBaseSHA: cut.MergeBaseSHA,
+		MergeBaseSHA: cut.MergeBaseSHA.String(),
 		SourceSHA:    sourceCommitSHA,
 		Path:         path,
 		LineNew:      cut.Header.NewLine,
@@ -322,6 +336,10 @@ func (c *Controller) fetchDiffCut(
 	repo *types.Repository,
 	in *CommentCreateInput,
 ) (git.DiffCutOutput, error) {
+	// maxDiffLineCount restricts the total length of a code comment diff to 1000 lines.
+	// TODO: This can still lead to wrong code comments in cases like a large file being replaced by one line.
+	const maxDiffLineCount = 1000
+
 	cut, err := c.git.DiffCut(ctx, &git.DiffCutParams{
 		ReadParams:      git.ReadParams{RepoUID: repo.GitUID},
 		SourceCommitSHA: in.SourceCommitSHA,
@@ -331,8 +349,9 @@ func (c *Controller) fetchDiffCut(
 		LineStartNew:    in.LineStartNew,
 		LineEnd:         in.LineEnd,
 		LineEndNew:      in.LineEndNew,
+		LineLimit:       maxDiffLineCount,
 	})
-	if errors.AsStatus(err) == errors.StatusNotFound || gittypes.IsPathNotFoundError(err) {
+	if errors.AsStatus(err) == errors.StatusNotFound {
 		return git.DiffCutOutput{}, usererror.BadRequest(errors.Message(err))
 	}
 	if err != nil {
@@ -351,7 +370,7 @@ func (c *Controller) migrateCodeComment(
 	cut git.DiffCutOutput,
 ) {
 	needsNewLineMigrate := in.SourceCommitSHA != pr.SourceSHA
-	needsOldLineMigrate := cut.MergeBaseSHA != pr.MergeBaseSHA
+	needsOldLineMigrate := cut.MergeBaseSHA.String() != pr.MergeBaseSHA
 	if !needsNewLineMigrate && !needsOldLineMigrate {
 		return
 	}
@@ -391,4 +410,21 @@ func (c *Controller) reportCommentCreated(
 		SourceSHA:  pr.SourceSHA,
 		IsReply:    isReply,
 	})
+}
+
+func appendMetadataUpdateForSuggestions(
+	updates []types.PullReqActivityMetadataUpdate,
+	comment string,
+) []types.PullReqActivityMetadataUpdate {
+	suggestions := parseSuggestions(comment)
+	return append(
+		updates,
+		types.WithPullReqActivitySuggestionsMetadataUpdate(
+			func(m *types.PullReqActivitySuggestionsMetadata) {
+				m.CheckSums = make([]string, len(suggestions))
+				for i := range suggestions {
+					m.CheckSums[i] = suggestions[i].checkSum
+				}
+			}),
+	)
 }

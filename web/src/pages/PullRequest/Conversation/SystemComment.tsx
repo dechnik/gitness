@@ -18,14 +18,12 @@ import React from 'react'
 import { Avatar, Container, Layout, StringSubstitute, Text } from '@harnessio/uicore'
 import { Icon, IconName } from '@harnessio/icons'
 import { Color, FontVariation } from '@harnessio/design-system'
-import { Render } from 'react-jsx-match'
 import { defaultTo } from 'lodash-es'
-import { CodeIcon, GitInfoProps } from 'utils/GitUtils'
-import { MarkdownViewer } from 'components/MarkdownViewer/MarkdownViewer'
+import { CodeIcon, GitInfoProps, MergeStrategy } from 'utils/GitUtils'
 import { useStrings } from 'framework/strings'
 import type { TypesPullReqActivity } from 'services/code'
 import type { CommentItem } from 'components/CommentBox/CommentBox'
-import { formatDate, formatTime, PullRequestSection } from 'utils/Utils'
+import { PullRequestSection } from 'utils/Utils'
 import { CommentType } from 'components/DiffViewer/DiffViewerUtils'
 import { useAppContext } from 'AppContext'
 import { CommitActions } from 'components/CommitActions/CommitActions'
@@ -36,6 +34,12 @@ import css from './Conversation.module.scss'
 interface SystemCommentProps extends Pick<GitInfoProps, 'pullReqMetadata'> {
   commentItems: CommentItem<TypesPullReqActivity>[]
   repoMetadataPath?: string
+}
+
+interface MergePayload {
+  merge_sha: string
+  merge_method: string
+  rules_bypassed: boolean
 }
 
 export const SystemComment: React.FC<SystemCommentProps> = ({ pullReqMetadata, commentItems, repoMetadataPath }) => {
@@ -54,13 +58,32 @@ export const SystemComment: React.FC<SystemCommentProps> = ({ pullReqMetadata, c
             </Container>
 
             <Avatar name={pullReqMetadata.merger?.display_name} size="small" hoverCard={false} />
-            <Text>
+            <Text flex tag="div">
               <StringSubstitute
-                str={getString('pr.prMergedInfo')}
+                str={
+                  (payload?.payload as MergePayload)?.merge_method === MergeStrategy.REBASE
+                    ? getString('pr.prRebasedInfo')
+                    : getString('pr.prMergedInfo')
+                }
                 vars={{
-                  user: <strong>{pullReqMetadata.merger?.display_name}</strong>,
-                  source: <strong>{pullReqMetadata.source_branch}</strong>,
-                  target: <strong>{pullReqMetadata.target_branch}</strong>,
+                  user: <strong className={css.rightTextPadding}>{pullReqMetadata.merger?.display_name}</strong>,
+                  source: <strong className={css.textPadding}>{pullReqMetadata.source_branch}</strong>,
+                  target: <strong className={css.textPadding}>{pullReqMetadata.target_branch}</strong>,
+                  bypassed: (payload?.payload as MergePayload)?.rules_bypassed,
+                  mergeSha: (
+                    <Container className={css.commitContainer} padding={{ left: 'small', right: 'xsmall' }}>
+                      <CommitActions
+                        enableCopy
+                        sha={(payload?.payload as MergePayload)?.merge_sha}
+                        href={routes.toCODEPullRequest({
+                          repoPath: repoMetadataPath as string,
+                          pullRequestSection: PullRequestSection.FILES_CHANGED,
+                          pullRequestId: String(pullReqMetadata.number),
+                          commitSHA: (payload?.payload as MergePayload)?.merge_sha as string
+                        })}
+                      />
+                    </Container>
+                  ),
                   time: (
                     <Text inline margin={{ left: 'xsmall' }}>
                       <PipeSeparator height={9} />
@@ -97,7 +120,7 @@ export const SystemComment: React.FC<SystemCommentProps> = ({ pullReqMetadata, c
                 str={getString('pr.prReviewSubmit')}
                 vars={{
                   user: <strong>{payload?.author?.display_name}</strong>,
-                  state: <Text margin={{ right: 'xsmall' }}>{(payload?.payload as Unknown)?.decision}</Text>,
+                  state: (payload?.payload as Unknown)?.decision,
                   time: (
                     <Text inline margin={{ left: 'xsmall' }}>
                       <PipeSeparator height={9} />
@@ -268,26 +291,6 @@ export const SystemComment: React.FC<SystemCommentProps> = ({ pullReqMetadata, c
               color={Color.GREY_400}
             />
           </Layout.Horizontal>
-          <Render when={commentItems.length > 1}>
-            <Container
-              margin={{ top: 'medium', left: 'xxxlarge' }}
-              style={{ maxWidth: 'calc(100vw - 450px)', overflow: 'auto' }}>
-              <MarkdownViewer
-                source={[getString('pr.titleChangedTable').replace(/\n$/, '')]
-                  .concat(
-                    commentItems
-                      .filter((_, index) => index > 0)
-                      .map(
-                        item =>
-                          `|${item.author}|<s>${(item.payload?.payload as Unknown)?.old}</s>|${
-                            (item.payload?.payload as Unknown)?.new
-                          }|${formatDate(item.edited)} ${formatTime(item.edited)}|`
-                      )
-                  )
-                  .join('\n')}
-              />
-            </Container>
-          </Render>
         </Container>
       )
     }

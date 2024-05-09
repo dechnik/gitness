@@ -34,15 +34,14 @@ func HandleListRepos(spaceCtrl *space.Controller) http.HandlerFunc {
 			return
 		}
 
-		filter := request.ParseRepoFilter(r)
-		if filter.Order == enum.OrderDefault {
-			filter.Order = enum.OrderAsc
-		}
-
-		filter.Recursive, err = request.ParseRecursiveFromQuery(r)
+		filter, err := request.ParseRepoFilter(r)
 		if err != nil {
 			render.TranslatedUserError(ctx, w, err)
 			return
+		}
+
+		if filter.Order == enum.OrderDefault {
+			filter.Order = enum.OrderAsc
 		}
 
 		repos, count, err := spaceCtrl.ListRepositories(

@@ -259,6 +259,8 @@ export interface StringsMap {
   emptyRepoInclude: string
   emptySpaceText: string
   enableAIDAMessage: string
+  enableAIDAPRDescription: string
+  enableAIDAPRMessange: string
   enableAISearch: string
   enableSSLVerification: string
   enableWebhookContent: string
@@ -301,11 +303,14 @@ export interface StringsMap {
   'exportSpace.accesstokenReq': string
   'exportSpace.entitiesLabel': string
   'exportSpace.exportCompleted': string
+  'exportSpace.exportFailed': string
   'exportSpace.exportRepo': string
   'exportSpace.exportRepoCompleted': string
   'exportSpace.harness': string
   'exportSpace.newProject': string
+  'exportSpace.orgIdPlaceholder': string
   'exportSpace.organization': string
+  'exportSpace.projectIdPlaceholder': string
   'exportSpace.projectName': string
   'exportSpace.projectOrg': string
   'exportSpace.repoToConvert': string
@@ -315,6 +320,7 @@ export interface StringsMap {
   'exportSpace.upgrade': string
   'exportSpace.upgradeConfirmation': string
   'exportSpace.upgradeContent': string
+  'exportSpace.upgradeFailed': string
   'exportSpace.upgradeHarness': string
   'exportSpace.upgradeProgress': string
   'exportSpace.upgradeTitle': string
@@ -344,6 +350,7 @@ export interface StringsMap {
   generateCloneCred: string
   generateCloneText: string
   generateHelptext: string
+  generateSummary: string
   getMyCloneTitle: string
   gitIgnore: string
   gitness: string
@@ -359,6 +366,7 @@ export interface StringsMap {
   'imageUpload.text': string
   'imageUpload.title': string
   'imageUpload.upload': string
+  importFailed: string
   importGitRepo: string
   importGitRepos: string
   importProgress: string
@@ -410,6 +418,7 @@ export interface StringsMap {
   'importSpace.title': string
   in: string
   inactiveBranches: string
+  invalidResponse: string
   isRequired: string
   key: string
   'keywordSearch.sampleQueries.searchForClass': string
@@ -548,6 +557,7 @@ export interface StringsMap {
   'pipelines.failedToFindPath': string
   'pipelines.failedToGenerate': string
   'pipelines.failedToUpdatePipeline': string
+  'pipelines.import': string
   'pipelines.lastExecution': string
   'pipelines.name': string
   'pipelines.newPipelineButton': string
@@ -594,6 +604,7 @@ export interface StringsMap {
   'pr.checks': string
   'pr.checksFailure': string
   'pr.collapseFullFile': string
+  'pr.commentLineNumbers': string
   'pr.copyLinkToComment': string
   'pr.createDraftPR': string
   'pr.descHasTooLongLine': string
@@ -629,6 +640,7 @@ export interface StringsMap {
   'pr.mergePR': string
   'pr.metaLine': string
   'pr.modalTitle': string
+  'pr.moreComments': string
   'pr.openForReview': string
   'pr.outdated': string
   'pr.prBranchDeleteInfo': string
@@ -638,6 +650,7 @@ export interface StringsMap {
   'pr.prMerged': string
   'pr.prMergedBannerInfo': string
   'pr.prMergedInfo': string
+  'pr.prRebasedInfo': string
   'pr.prReviewSubmit': string
   'pr.prStateChanged': string
   'pr.prStateChangedDraft': string
@@ -762,6 +775,17 @@ export interface StringsMap {
   'secrets.secretUpdated': string
   'secrets.showValue': string
   'secrets.updateSecret': string
+  security: string
+  'securitySettings.block': string
+  'securitySettings.blockDesc': string
+  'securitySettings.detect': string
+  'securitySettings.detectDesc': string
+  'securitySettings.failedToUpdate': string
+  'securitySettings.scanningSecret': string
+  'securitySettings.scanningSecretDesc': string
+  'securitySettings.updateSuccess': string
+  'securitySettings.vulnerabilityScanning': string
+  'securitySettings.vulnerabilityScanningDesc': string
   seeNMoreMatches: string
   selectBranchPlaceHolder: string
   selectLanguagePlaceholder: string
@@ -851,6 +875,7 @@ export interface StringsMap {
   updateUser: string
   updateWebhook: string
   updated: string
+  uploadAFileError: string
   user: string
   userCreated: string
   userId: string

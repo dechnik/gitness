@@ -21,9 +21,11 @@ import (
 	"time"
 
 	"github.com/harness/gitness/errors"
+	"github.com/harness/gitness/git/api"
 	"github.com/harness/gitness/git/enum"
+	"github.com/harness/gitness/git/hook"
 	"github.com/harness/gitness/git/merge"
-	"github.com/harness/gitness/git/types"
+	"github.com/harness/gitness/git/sha"
 
 	"github.com/rs/zerolog/log"
 )
@@ -57,7 +59,7 @@ type MergeParams struct {
 
 	// HeadExpectedSHA is commit sha on the head branch, if HeadExpectedSHA is older
 	// than the HeadBranch latest sha then merge will fail.
-	HeadExpectedSHA string
+	HeadExpectedSHA sha.SHA
 
 	Force            bool
 	DeleteHeadBranch bool
@@ -88,13 +90,13 @@ func (p *MergeParams) Validate() error {
 // base, head and commit sha.
 type MergeOutput struct {
 	// BaseSHA is the sha of the latest commit on the base branch that was used for merging.
-	BaseSHA string
+	BaseSHA sha.SHA
 	// HeadSHA is the sha of the latest commit on the head branch that was used for merging.
-	HeadSHA string
+	HeadSHA sha.SHA
 	// MergeBaseSHA is the sha of the merge base of the HeadSHA and BaseSHA
-	MergeBaseSHA string
+	MergeBaseSHA sha.SHA
 	// MergeSHA is the sha of the commit after merging HeadSHA with BaseSHA.
-	MergeSHA string
+	MergeSHA sha.SHA
 
 	CommitCount      int
 	ChangedFileCount int
@@ -148,7 +150,7 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 	// set up the target reference
 
 	var refPath string
-	var refOldValue string
+	var refOldValue sha.SHA
 
 	if params.RefType != enum.RefTypeUndefined {
 		refPath, err = GetRefPath(params.RefName, params.RefType)
@@ -158,9 +160,9 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 				params.RefType, params.RefName, err)
 		}
 
-		refOldValue, err = s.adapter.GetFullCommitID(ctx, repoPath, refPath)
+		refOldValue, err = s.git.GetFullCommitID(ctx, repoPath, refPath)
 		if errors.IsNotFound(err) {
-			refOldValue = types.NilSHA
+			refOldValue = sha.Nil
 		} else if err != nil {
 			return MergeOutput{}, fmt.Errorf("failed to resolve %q: %w", refPath, err)
 		}
@@ -178,17 +180,17 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 
 	// find the commit SHAs
 
-	baseCommitSHA, err := s.adapter.GetFullCommitID(ctx, repoPath, params.BaseBranch)
+	baseCommitSHA, err := s.git.GetFullCommitID(ctx, repoPath, params.BaseBranch)
 	if err != nil {
 		return MergeOutput{}, fmt.Errorf("failed to get merge base branch commit SHA: %w", err)
 	}
 
-	headCommitSHA, err := s.adapter.GetFullCommitID(ctx, repoPath, params.HeadBranch)
+	headCommitSHA, err := s.git.GetFullCommitID(ctx, repoPath, params.HeadBranch)
 	if err != nil {
 		return MergeOutput{}, fmt.Errorf("failed to get merge base branch commit SHA: %w", err)
 	}
 
-	if params.HeadExpectedSHA != "" && params.HeadExpectedSHA != headCommitSHA {
+	if !params.HeadExpectedSHA.IsEmpty() && !params.HeadExpectedSHA.Equal(headCommitSHA) {
 		return MergeOutput{}, errors.PreconditionFailed(
 			"head branch '%s' is on SHA '%s' which doesn't match expected SHA '%s'.",
 			params.HeadBranch,
@@ -196,25 +198,26 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 			params.HeadExpectedSHA)
 	}
 
-	mergeBaseCommitSHA, _, err := s.adapter.GetMergeBase(ctx, repoPath, "origin", baseCommitSHA, headCommitSHA)
+	mergeBaseCommitSHA, _, err := s.git.GetMergeBase(ctx, repoPath, "origin",
+		baseCommitSHA.String(), headCommitSHA.String())
 	if err != nil {
 		return MergeOutput{}, fmt.Errorf("failed to get merge base: %w", err)
 	}
 
-	if headCommitSHA == mergeBaseCommitSHA {
+	if headCommitSHA.Equal(mergeBaseCommitSHA) {
 		return MergeOutput{}, errors.InvalidArgument("head branch doesn't contain any new commits.")
 	}
 
 	// find short stat and number of commits
 
-	shortStat, err := s.adapter.DiffShortStat(ctx, repoPath, baseCommitSHA, headCommitSHA, true)
+	shortStat, err := s.git.DiffShortStat(ctx, repoPath, baseCommitSHA.String(), headCommitSHA.String(), true)
 	if err != nil {
 		return MergeOutput{}, errors.Internal(err,
 			"failed to find short stat between %s and %s", baseCommitSHA, headCommitSHA)
 	}
 	changedFileCount := shortStat.Files
 
-	commitCount, err := merge.CommitCount(ctx, repoPath, baseCommitSHA, headCommitSHA)
+	commitCount, err := merge.CommitCount(ctx, repoPath, baseCommitSHA.String(), headCommitSHA.String())
 	if err != nil {
 		return MergeOutput{}, fmt.Errorf("failed to find commit count for merge check: %w", err)
 	}
@@ -222,11 +225,11 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 	// handle simple merge check
 
 	if params.RefType == enum.RefTypeUndefined {
-		_, _, conflicts, err := merge.FindConflicts(ctx, repoPath, baseCommitSHA, headCommitSHA)
+		_, _, conflicts, err := merge.FindConflicts(ctx, repoPath, baseCommitSHA.String(), headCommitSHA.String())
 		if err != nil {
 			return MergeOutput{}, errors.Internal(err,
 				"Merge check failed to find conflicts between commits %s and %s",
-				baseCommitSHA, headCommitSHA)
+				baseCommitSHA.String(), headCommitSHA.String())
 		}
 
 		log.Debug().Msg("merged check completed")
@@ -235,7 +238,7 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 			BaseSHA:          baseCommitSHA,
 			HeadSHA:          headCommitSHA,
 			MergeBaseSHA:     mergeBaseCommitSHA,
-			MergeSHA:         "",
+			MergeSHA:         sha.None,
 			CommitCount:      commitCount,
 			ChangedFileCount: changedFileCount,
 			ConflictFiles:    conflicts,
@@ -246,10 +249,10 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 
 	now := time.Now().UTC()
 
-	committer := types.Signature{Identity: types.Identity(params.Actor), When: now}
+	committer := api.Signature{Identity: api.Identity(params.Actor), When: now}
 
 	if params.Committer != nil {
-		committer.Identity = types.Identity(*params.Committer)
+		committer.Identity = api.Identity(*params.Committer)
 	}
 	if params.CommitterDate != nil {
 		committer.When = *params.CommitterDate
@@ -258,7 +261,7 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 	author := committer
 
 	if params.Author != nil {
-		author.Identity = types.Identity(*params.Author)
+		author.Identity = api.Identity(*params.Author)
 	}
 	if params.AuthorDate != nil {
 		author.When = *params.AuthorDate
@@ -273,46 +276,37 @@ func (s *Service) Merge(ctx context.Context, params *MergeParams) (MergeOutput, 
 
 	// merge
 
+	refUpdater, err := hook.CreateRefUpdater(s.hookClientFactory, params.EnvVars, repoPath, refPath)
+	if err != nil {
+		return MergeOutput{}, errors.Internal(err, "failed to create ref updater object")
+	}
+
+	if err := refUpdater.InitOld(ctx, refOldValue); err != nil {
+		return MergeOutput{}, errors.Internal(err, "failed to set old reference value for ref updater")
+	}
+
 	mergeCommitSHA, conflicts, err := mergeFunc(
 		ctx,
+		refUpdater,
 		repoPath, s.tmpDir,
 		&author, &committer,
 		mergeMsg,
 		mergeBaseCommitSHA, baseCommitSHA, headCommitSHA)
 	if err != nil {
-		return MergeOutput{}, errors.Internal(err, "failed to merge %q to %q in %q using the %q merge method.",
+		return MergeOutput{}, errors.Internal(err, "failed to merge %q to %q in %q using the %q merge method",
 			params.HeadBranch, params.BaseBranch, params.RepoUID, mergeMethod)
 	}
-	if len(conflicts) != 0 {
+	if len(conflicts) > 0 {
 		return MergeOutput{
 			BaseSHA:          baseCommitSHA,
 			HeadSHA:          headCommitSHA,
 			MergeBaseSHA:     mergeBaseCommitSHA,
-			MergeSHA:         "",
+			MergeSHA:         sha.None,
 			CommitCount:      commitCount,
 			ChangedFileCount: changedFileCount,
 			ConflictFiles:    conflicts,
 		}, nil
 	}
-
-	// git reference update
-
-	log.Trace().Msg("merge completed - updating git reference")
-
-	err = s.adapter.UpdateRef(
-		ctx,
-		params.EnvVars,
-		repoPath,
-		refPath,
-		refOldValue,
-		mergeCommitSHA,
-	)
-	if err != nil {
-		return MergeOutput{},
-			errors.Internal(err, "failed to update branch %q after merging commits", params.HeadBranch)
-	}
-
-	log.Trace().Msg("merge completed - git reference updated")
 
 	return MergeOutput{
 		BaseSHA:          baseCommitSHA,
@@ -350,7 +344,7 @@ func (p *MergeBaseParams) Validate() error {
 }
 
 type MergeBaseOutput struct {
-	MergeBaseSHA string
+	MergeBaseSHA sha.SHA
 }
 
 func (s *Service) MergeBase(
@@ -363,7 +357,7 @@ func (s *Service) MergeBase(
 
 	repoPath := getFullPathForRepo(s.reposRoot, params.RepoUID)
 
-	result, _, err := s.adapter.GetMergeBase(ctx, repoPath, "", params.Ref1, params.Ref2)
+	result, _, err := s.git.GetMergeBase(ctx, repoPath, "", params.Ref1, params.Ref2)
 	if err != nil {
 		return MergeBaseOutput{}, err
 	}
@@ -375,8 +369,8 @@ func (s *Service) MergeBase(
 
 type IsAncestorParams struct {
 	ReadParams
-	AncestorCommitSHA   string
-	DescendantCommitSHA string
+	AncestorCommitSHA   sha.SHA
+	DescendantCommitSHA sha.SHA
 }
 
 type IsAncestorOutput struct {
@@ -389,7 +383,13 @@ func (s *Service) IsAncestor(
 ) (IsAncestorOutput, error) {
 	repoPath := getFullPathForRepo(s.reposRoot, params.RepoUID)
 
-	result, err := s.adapter.IsAncestor(ctx, repoPath, params.AncestorCommitSHA, params.DescendantCommitSHA)
+	result, err := s.git.IsAncestor(
+		ctx,
+		repoPath,
+		params.AlternateObjectDirs,
+		params.AncestorCommitSHA,
+		params.DescendantCommitSHA,
+	)
 	if err != nil {
 		return IsAncestorOutput{}, err
 	}

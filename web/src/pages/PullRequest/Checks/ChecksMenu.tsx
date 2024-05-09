@@ -138,7 +138,6 @@ export const ChecksMenu: React.FC<ChecksMenuProps> = ({
   useEffect(() => {
     const initialStates: ExpandedStates = {}
     const initialMap: ElapsedTimeStatusMap = {}
-
     Object.keys(groupedData).forEach(key => {
       const findStatus = () => {
         const statusPriority = ['running', 'pending', 'failure', 'error', 'success']
@@ -154,19 +153,19 @@ export const ChecksMenu: React.FC<ChecksMenuProps> = ({
 
       const dataArr = groupedData[key]
       if (groupedData && dataArr) {
-        let startTime = 0
-        let endTime = 0
-        dataArr.map((item: TypesCheck) => {
-          if (item) {
-            startTime += item.created ? item?.created : 0
-            endTime += item.updated ? item?.updated : 0
-          }
-        })
+        const { minCreated, maxUpdated } = dataArr.reduce(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (acc: any, item: TypesCheck) => ({
+            minCreated: item.started && item.started < acc.minCreated ? item.started : acc.minCreated,
+            maxUpdated: item.ended && item.ended > acc.maxUpdated ? item.ended : acc.maxUpdated
+          }),
+          { minCreated: Infinity, maxUpdated: -Infinity }
+        )
         const res = findStatus()
         const statusVal = res ? res.status : ''
         initialMap[key] = {
           status: statusVal,
-          time: timeDistance(startTime, endTime),
+          time: timeDistance(minCreated, maxUpdated),
           started: groupedData[key][0].started
         }
       }
@@ -174,7 +173,7 @@ export const ChecksMenu: React.FC<ChecksMenuProps> = ({
         if (uid.includes(key)) {
           setExpandedPipelineId(key)
         }
-        initialStates[key] = uid.includes(key) ? true : false // or true if you want them initially expanded
+        initialStates[key] = uid.includes(key)
       } else {
         setExpandedPipelineId(null)
         initialStates[key] = false
@@ -230,22 +229,7 @@ export const ChecksMenu: React.FC<ChecksMenuProps> = ({
                 {pipelineId}
               </Text>
               <FlexExpander />
-              <Render when={statusTimeStates[pipelineId]?.time}>
-                <Text
-                  color={Color.GREY_300}
-                  padding={{ right: 'small' }}
-                  font={{ variation: FontVariation.SMALL }}
-                  className={css.noShrink}>
-                  {statusTimeStates[pipelineId]?.status === 'running' ? (
-                    <ReactTimeago
-                      date={new Date(statusTimeStates[pipelineId]?.started || 0)}
-                      formatter={customFormatter}
-                    />
-                  ) : (
-                    statusTimeStates[pipelineId]?.time
-                  )}
-                </Text>
-              </Render>
+
               <NavArrowRight
                 color={Utils.getRealCSSColor(Color.GREY_500)}
                 className={cx(css.noShrink, css.chevron)}
@@ -355,7 +339,7 @@ const CheckMenuItem: React.FC<CheckMenuItemProps> = ({
 
         <Text color={Color.GREY_300} font={{ variation: FontVariation.SMALL }} className={css.noShrink}>
           {itemData?.ended && itemData?.started ? (
-            timeDistance(itemData.updated, itemData.created)
+            timeDistance(itemData.started, itemData.ended)
           ) : (
             <ReactTimeago date={new Date(itemData?.started || 0)} formatter={customFormatter} />
           )}

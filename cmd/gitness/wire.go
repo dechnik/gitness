@@ -13,6 +13,7 @@ import (
 	checkcontroller "github.com/harness/gitness/app/api/controller/check"
 	"github.com/harness/gitness/app/api/controller/connector"
 	"github.com/harness/gitness/app/api/controller/execution"
+	githookCtrl "github.com/harness/gitness/app/api/controller/githook"
 	controllerkeywordsearch "github.com/harness/gitness/app/api/controller/keywordsearch"
 	"github.com/harness/gitness/app/api/controller/limiter"
 	controllerlogs "github.com/harness/gitness/app/api/controller/logs"
@@ -21,6 +22,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/principal"
 	"github.com/harness/gitness/app/api/controller/pullreq"
 	"github.com/harness/gitness/app/api/controller/repo"
+	"github.com/harness/gitness/app/api/controller/reposettings"
 	"github.com/harness/gitness/app/api/controller/secret"
 	"github.com/harness/gitness/app/api/controller/service"
 	"github.com/harness/gitness/app/api/controller/serviceaccount"
@@ -38,7 +40,6 @@ import (
 	gitevents "github.com/harness/gitness/app/events/git"
 	pullreqevents "github.com/harness/gitness/app/events/pullreq"
 	repoevents "github.com/harness/gitness/app/events/repo"
-	"github.com/harness/gitness/app/githook"
 	"github.com/harness/gitness/app/pipeline/canceler"
 	"github.com/harness/gitness/app/pipeline/commit"
 	"github.com/harness/gitness/app/pipeline/converter"
@@ -57,12 +58,14 @@ import (
 	"github.com/harness/gitness/app/services/exporter"
 	"github.com/harness/gitness/app/services/importer"
 	"github.com/harness/gitness/app/services/keywordsearch"
+	locker "github.com/harness/gitness/app/services/locker"
 	"github.com/harness/gitness/app/services/metric"
 	"github.com/harness/gitness/app/services/notification"
 	"github.com/harness/gitness/app/services/notification/mailer"
 	"github.com/harness/gitness/app/services/protection"
 	pullreqservice "github.com/harness/gitness/app/services/pullreq"
-	"github.com/harness/gitness/app/services/reposize"
+	reposervice "github.com/harness/gitness/app/services/repo"
+	"github.com/harness/gitness/app/services/settings"
 	"github.com/harness/gitness/app/services/trigger"
 	"github.com/harness/gitness/app/services/usergroup"
 	"github.com/harness/gitness/app/services/webhook"
@@ -72,12 +75,13 @@ import (
 	"github.com/harness/gitness/app/store/database"
 	"github.com/harness/gitness/app/store/logs"
 	"github.com/harness/gitness/app/url"
+	"github.com/harness/gitness/audit"
 	"github.com/harness/gitness/blob"
 	cliserver "github.com/harness/gitness/cli/operations/server"
 	"github.com/harness/gitness/encrypt"
 	"github.com/harness/gitness/events"
 	"github.com/harness/gitness/git"
-	"github.com/harness/gitness/git/adapter"
+	"github.com/harness/gitness/git/api"
 	"github.com/harness/gitness/git/storage"
 	"github.com/harness/gitness/job"
 	"github.com/harness/gitness/livelog"
@@ -111,6 +115,7 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		space.WireSet,
 		limiter.WireSet,
 		repo.WireSet,
+		reposettings.WireSet,
 		pullreq.WireSet,
 		controllerwebhook.WireSet,
 		serviceaccount.WireSet,
@@ -125,7 +130,7 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		pullreqevents.WireSet,
 		repoevents.WireSet,
 		storage.WireSet,
-		adapter.WireSet,
+		api.WireSet,
 		cliserver.ProvideGitConfig,
 		git.WireSet,
 		store.WireSet,
@@ -138,9 +143,11 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		webhook.WireSet,
 		cliserver.ProvideTriggerConfig,
 		trigger.WireSet,
-		githook.WireSet,
+		githookCtrl.ExtenderWireSet,
+		githookCtrl.WireSet,
 		cliserver.ProvideLockConfig,
 		lock.WireSet,
+		locker.WireSet,
 		cliserver.ProvidePubsubConfig,
 		pubsub.WireSet,
 		cliserver.ProvideJobsConfig,
@@ -173,14 +180,17 @@ func initSystem(ctx context.Context, config *types.Config) (*cliserver.System, e
 		canceler.WireSet,
 		exporter.WireSet,
 		metric.WireSet,
-		reposize.WireSet,
+		reposervice.WireSet,
 		cliserver.ProvideCodeOwnerConfig,
 		codeowners.WireSet,
 		cliserver.ProvideKeywordSearchConfig,
 		keywordsearch.WireSet,
 		controllerkeywordsearch.WireSet,
+		settings.WireSet,
 		usergroup.WireSet,
 		openapi.WireSet,
+		repo.ProvideRepoCheck,
+		audit.WireSet,
 	)
 	return &cliserver.System{}, nil
 }

@@ -23,47 +23,35 @@ import (
 	"github.com/harness/gitness/app/auth"
 	"github.com/harness/gitness/app/auth/authz"
 	eventsgit "github.com/harness/gitness/app/events/git"
+	eventsrepo "github.com/harness/gitness/app/events/repo"
 	"github.com/harness/gitness/app/services/protection"
+	"github.com/harness/gitness/app/services/settings"
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/app/url"
+	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git"
+	"github.com/harness/gitness/git/api"
+	"github.com/harness/gitness/git/hook"
+	"github.com/harness/gitness/git/sha"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 )
 
-// ServerHookOutput represents the output of server hook api calls.
-// TODO: support non-error messages (once we need it).
-type ServerHookOutput struct {
-	// Error contains the user facing error (like "branch is protected", ...).
-	Error *string `json:"error,omitempty"`
-}
-
-// ReferenceUpdate represents an update of a git reference.
-type ReferenceUpdate struct {
-	// Ref is the full name of the reference that got updated.
-	Ref string `json:"ref"`
-	// Old is the old commmit hash (before the update).
-	Old string `json:"old"`
-	// New is the new commit hash (after the update).
-	New string `json:"new"`
-}
-
-// BaseInput contains the base input for any githook api call.
-type BaseInput struct {
-	RepoID      int64 `json:"repo_id"`
-	PrincipalID int64 `json:"principal_id"`
-}
-
 type Controller struct {
-	authorizer        authz.Authorizer
-	principalStore    store.PrincipalStore
-	repoStore         store.RepoStore
-	gitReporter       *eventsgit.Reporter
-	git               git.Interface
-	pullreqStore      store.PullReqStore
-	urlProvider       url.Provider
-	protectionManager *protection.Manager
-	resourceLimiter   limiter.ResourceLimiter
+	authorizer          authz.Authorizer
+	principalStore      store.PrincipalStore
+	repoStore           store.RepoStore
+	gitReporter         *eventsgit.Reporter
+	repoReporter        *eventsrepo.Reporter
+	git                 git.Interface
+	pullreqStore        store.PullReqStore
+	urlProvider         url.Provider
+	protectionManager   *protection.Manager
+	limiter             limiter.ResourceLimiter
+	settings            *settings.Service
+	preReceiveExtender  PreReceiveExtender
+	updateExtender      UpdateExtender
+	postReceiveExtender PostReceiveExtender
 }
 
 func NewController(
@@ -71,22 +59,32 @@ func NewController(
 	principalStore store.PrincipalStore,
 	repoStore store.RepoStore,
 	gitReporter *eventsgit.Reporter,
+	repoReporter *eventsrepo.Reporter,
 	git git.Interface,
 	pullreqStore store.PullReqStore,
 	urlProvider url.Provider,
 	protectionManager *protection.Manager,
 	limiter limiter.ResourceLimiter,
+	settings *settings.Service,
+	preReceiveExtender PreReceiveExtender,
+	updateExtender UpdateExtender,
+	postReceiveExtender PostReceiveExtender,
 ) *Controller {
 	return &Controller{
-		authorizer:        authorizer,
-		principalStore:    principalStore,
-		repoStore:         repoStore,
-		gitReporter:       gitReporter,
-		git:               git,
-		pullreqStore:      pullreqStore,
-		urlProvider:       urlProvider,
-		protectionManager: protectionManager,
-		resourceLimiter:   limiter,
+		authorizer:          authorizer,
+		principalStore:      principalStore,
+		repoStore:           repoStore,
+		gitReporter:         gitReporter,
+		repoReporter:        repoReporter,
+		git:                 git,
+		pullreqStore:        pullreqStore,
+		urlProvider:         urlProvider,
+		protectionManager:   protectionManager,
+		limiter:             limiter,
+		settings:            settings,
+		preReceiveExtender:  preReceiveExtender,
+		updateExtender:      updateExtender,
+		postReceiveExtender: postReceiveExtender,
 	}
 }
 
@@ -104,4 +102,57 @@ func (c *Controller) getRepoCheckAccess(ctx context.Context,
 	// TODO: execute permission check. block anything but gitness service?
 
 	return repo, nil
+}
+
+// GetBaseSHAForScanningChanges returns the commit sha to which the new sha of the reference
+// should be compared against when scanning incoming changes.
+// NOTE: If no such a sha exists, then (sha.None, false, nil) is returned.
+// This will happen in case the default branch doesn't exist yet.
+func GetBaseSHAForScanningChanges(
+	ctx context.Context,
+	rgit RestrictedGIT,
+	repo *types.Repository,
+	env hook.Environment,
+	refUpdates []hook.ReferenceUpdate,
+	findBaseFor hook.ReferenceUpdate,
+) (sha.SHA, bool, error) {
+	// always return old SHA of ref if possible (even if ref was deleted, that's on the caller)
+	if !findBaseFor.Old.IsNil() {
+		return findBaseFor.Old, true, nil
+	}
+
+	// reference is just being created.
+	// For now we use default branch as a fallback (can be optimized to most recent commit on reference that exists)
+	dfltBranchFullRef := api.BranchPrefix + repo.DefaultBranch
+	for _, refUpdate := range refUpdates {
+		if refUpdate.Ref != dfltBranchFullRef {
+			continue
+		}
+
+		// default branch is being updated as part of push - make sure we use OLD default branch sha for comparison
+		if !refUpdate.Old.IsNil() {
+			return refUpdate.Old, true, nil
+		}
+
+		// default branch is being created - no fallback available
+		return sha.None, false, nil
+	}
+
+	// read default branch from git
+	dfltBranchOut, err := rgit.GetBranch(ctx, &git.GetBranchParams{
+		ReadParams: git.ReadParams{
+			RepoUID:             repo.GitUID,
+			AlternateObjectDirs: env.AlternateObjectDirs,
+		},
+		BranchName: repo.DefaultBranch,
+	})
+	if errors.IsNotFound(err) {
+		// this happens for empty repo's where the default branch wasn't created yet.
+		return sha.None, false, nil
+	}
+	if err != nil {
+		return sha.None, false, fmt.Errorf("failed to get default branch from git: %w", err)
+	}
+
+	return dfltBranchOut.Branch.SHA, true, nil
 }

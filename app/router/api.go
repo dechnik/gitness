@@ -30,6 +30,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/principal"
 	"github.com/harness/gitness/app/api/controller/pullreq"
 	"github.com/harness/gitness/app/api/controller/repo"
+	"github.com/harness/gitness/app/api/controller/reposettings"
 	"github.com/harness/gitness/app/api/controller/secret"
 	"github.com/harness/gitness/app/api/controller/serviceaccount"
 	"github.com/harness/gitness/app/api/controller/space"
@@ -51,6 +52,7 @@ import (
 	handlerprincipal "github.com/harness/gitness/app/api/handler/principal"
 	handlerpullreq "github.com/harness/gitness/app/api/handler/pullreq"
 	handlerrepo "github.com/harness/gitness/app/api/handler/repo"
+	handlerreposettings "github.com/harness/gitness/app/api/handler/reposettings"
 	"github.com/harness/gitness/app/api/handler/resource"
 	handlersecret "github.com/harness/gitness/app/api/handler/secret"
 	handlerserviceaccount "github.com/harness/gitness/app/api/handler/serviceaccount"
@@ -66,10 +68,13 @@ import (
 	middlewareauthn "github.com/harness/gitness/app/api/middleware/authn"
 	"github.com/harness/gitness/app/api/middleware/encode"
 	"github.com/harness/gitness/app/api/middleware/logging"
+	"github.com/harness/gitness/app/api/middleware/nocache"
 	middlewareprincipal "github.com/harness/gitness/app/api/middleware/principal"
 	"github.com/harness/gitness/app/api/request"
 	"github.com/harness/gitness/app/auth/authn"
 	"github.com/harness/gitness/app/githook"
+	"github.com/harness/gitness/audit"
+	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
@@ -96,6 +101,7 @@ func NewAPIHandler(
 	config *types.Config,
 	authenticator authn.Authenticator,
 	repoCtrl *repo.Controller,
+	repoSettingsCtrl *reposettings.Controller,
 	executionCtrl *execution.Controller,
 	logCtrl *logs.Controller,
 	spaceCtrl *space.Controller,
@@ -108,6 +114,7 @@ func NewAPIHandler(
 	pullreqCtrl *pullreq.Controller,
 	webhookCtrl *webhook.Controller,
 	githookCtrl *controllergithook.Controller,
+	git git.Interface,
 	saCtrl *serviceaccount.Controller,
 	userCtrl *user.Controller,
 	principalCtrl principal.Controller,
@@ -120,7 +127,7 @@ func NewAPIHandler(
 	r := chi.NewRouter()
 
 	// Apply common api middleware.
-	r.Use(middleware.NoCache)
+	r.Use(nocache.NoCache)
 	r.Use(middleware.Recoverer)
 
 	// configure logging middleware.
@@ -136,10 +143,12 @@ func NewAPIHandler(
 	// for now always attempt auth - enforced per operation.
 	r.Use(middlewareauthn.Attempt(authenticator))
 
+	r.Use(audit.Middleware())
+
 	r.Route("/v1", func(r chi.Router) {
-		setupRoutesV1(r, appCtx, config, repoCtrl, executionCtrl, triggerCtrl, logCtrl, pipelineCtrl,
+		setupRoutesV1(r, appCtx, config, repoCtrl, repoSettingsCtrl, executionCtrl, triggerCtrl, logCtrl, pipelineCtrl,
 			connectorCtrl, templateCtrl, pluginCtrl, secretCtrl, spaceCtrl, pullreqCtrl,
-			webhookCtrl, githookCtrl, saCtrl, userCtrl, principalCtrl, checkCtrl, sysCtrl, uploadCtrl,
+			webhookCtrl, githookCtrl, git, saCtrl, userCtrl, principalCtrl, checkCtrl, sysCtrl, uploadCtrl,
 			searchCtrl)
 	})
 
@@ -165,6 +174,7 @@ func setupRoutesV1(r chi.Router,
 	appCtx context.Context,
 	config *types.Config,
 	repoCtrl *repo.Controller,
+	repoSettingsCtrl *reposettings.Controller,
 	executionCtrl *execution.Controller,
 	triggerCtrl *trigger.Controller,
 	logCtrl *logs.Controller,
@@ -177,6 +187,7 @@ func setupRoutesV1(r chi.Router,
 	pullreqCtrl *pullreq.Controller,
 	webhookCtrl *webhook.Controller,
 	githookCtrl *controllergithook.Controller,
+	git git.Interface,
 	saCtrl *serviceaccount.Controller,
 	userCtrl *user.Controller,
 	principalCtrl principal.Controller,
@@ -186,15 +197,15 @@ func setupRoutesV1(r chi.Router,
 	searchCtrl *keywordsearch.Controller,
 ) {
 	setupSpaces(r, appCtx, spaceCtrl)
-	setupRepos(r, repoCtrl, pipelineCtrl, executionCtrl, triggerCtrl, logCtrl, pullreqCtrl, webhookCtrl, checkCtrl,
-		uploadCtrl)
+	setupRepos(r, repoCtrl, repoSettingsCtrl, pipelineCtrl, executionCtrl, triggerCtrl,
+		logCtrl, pullreqCtrl, webhookCtrl, checkCtrl, uploadCtrl)
 	setupConnectors(r, connectorCtrl)
 	setupTemplates(r, templateCtrl)
 	setupSecrets(r, secretCtrl)
 	setupUser(r, userCtrl)
 	setupServiceAccounts(r, saCtrl)
 	setupPrincipals(r, principalCtrl)
-	setupInternal(r, githookCtrl)
+	setupInternal(r, githookCtrl, git)
 	setupAdmin(r, userCtrl)
 	setupAccount(r, userCtrl, sysCtrl, config)
 	setupSystem(r, config, sysCtrl)
@@ -214,7 +225,9 @@ func setupSpaces(r chi.Router, appCtx context.Context, spaceCtrl *space.Controll
 			// space operations
 			r.Get("/", handlerspace.HandleFind(spaceCtrl))
 			r.Patch("/", handlerspace.HandleUpdate(spaceCtrl))
-			r.Delete("/", handlerspace.HandleDelete(spaceCtrl))
+			r.Delete("/", handlerspace.HandleSoftDelete(spaceCtrl))
+			r.Post("/restore", handlerspace.HandleRestore(spaceCtrl))
+			r.Post("/purge", handlerspace.HandlePurge(spaceCtrl))
 
 			r.Get("/events", handlerspace.HandleEvents(appCtx, spaceCtrl))
 
@@ -243,6 +256,7 @@ func setupSpaces(r chi.Router, appCtx context.Context, spaceCtrl *space.Controll
 
 func setupRepos(r chi.Router,
 	repoCtrl *repo.Controller,
+	repoSettingsCtrl *reposettings.Controller,
 	pipelineCtrl *pipeline.Controller,
 	executionCtrl *execution.Controller,
 	triggerCtrl *trigger.Controller,
@@ -264,6 +278,13 @@ func setupRepos(r chi.Router,
 			r.Post("/purge", handlerrepo.HandlePurge(repoCtrl))
 			r.Post("/restore", handlerrepo.HandleRestore(repoCtrl))
 
+			r.Route("/settings", func(r chi.Router) {
+				r.Get("/security", handlerreposettings.HandleSecurityFind(repoSettingsCtrl))
+				r.Patch("/security", handlerreposettings.HandleSecurityUpdate(repoSettingsCtrl))
+				r.Get("/general", handlerreposettings.HandleGeneralFind(repoSettingsCtrl))
+				r.Patch("/general", handlerreposettings.HandleGeneralUpdate(repoSettingsCtrl))
+			})
+
 			r.Post("/move", handlerrepo.HandleMove(repoCtrl))
 			r.Get("/service-accounts", handlerrepo.HandleListServiceAccounts(repoCtrl))
 
@@ -278,6 +299,7 @@ func setupRepos(r chi.Router,
 				r.Get("/*", handlerrepo.HandleGetContent(repoCtrl))
 			})
 
+			r.Get("/paths", handlerrepo.HandleListPaths(repoCtrl))
 			r.Post("/path-details", handlerrepo.HandlePathsDetails(repoCtrl))
 
 			r.Route("/blame", func(r chi.Router) {
@@ -332,6 +354,8 @@ func setupRepos(r chi.Router,
 			})
 
 			r.Get("/codeowners/validate", handlerrepo.HandleCodeOwnersValidate(repoCtrl))
+
+			r.Get(fmt.Sprintf("/archive/%s", request.PathParamArchiveGitRef), handlerrepo.HandleArchive(repoCtrl))
 
 			SetupPullReq(r, pullreqCtrl)
 
@@ -468,17 +492,17 @@ func setupTriggers(
 	})
 }
 
-func setupInternal(r chi.Router, githookCtrl *controllergithook.Controller) {
+func setupInternal(r chi.Router, githookCtrl *controllergithook.Controller, git git.Interface) {
 	r.Route("/internal", func(r chi.Router) {
-		SetupGitHooks(r, githookCtrl)
+		SetupGitHooks(r, githookCtrl, git)
 	})
 }
 
-func SetupGitHooks(r chi.Router, githookCtrl *controllergithook.Controller) {
+func SetupGitHooks(r chi.Router, githookCtrl *controllergithook.Controller, git git.Interface) {
 	r.Route("/git-hooks", func(r chi.Router) {
-		r.Post("/"+githook.HTTPRequestPathPreReceive, handlergithook.HandlePreReceive(githookCtrl))
-		r.Post("/"+githook.HTTPRequestPathUpdate, handlergithook.HandleUpdate(githookCtrl))
-		r.Post("/"+githook.HTTPRequestPathPostReceive, handlergithook.HandlePostReceive(githookCtrl))
+		r.Post("/"+githook.HTTPRequestPathPreReceive, handlergithook.HandlePreReceive(githookCtrl, git))
+		r.Post("/"+githook.HTTPRequestPathUpdate, handlergithook.HandleUpdate(githookCtrl, git))
+		r.Post("/"+githook.HTTPRequestPathPostReceive, handlergithook.HandlePostReceive(githookCtrl, git))
 	})
 }
 
@@ -494,6 +518,7 @@ func SetupPullReq(r chi.Router, pullreqCtrl *pullreq.Controller) {
 			r.Get("/activities", handlerpullreq.HandleListActivities(pullreqCtrl))
 			r.Route("/comments", func(r chi.Router) {
 				r.Post("/", handlerpullreq.HandleCommentCreate(pullreqCtrl))
+				r.Post("/apply-suggestions", handlerpullreq.HandleCommentApplySuggestions(pullreqCtrl))
 				r.Route(fmt.Sprintf("/{%s}", request.PathParamPullReqCommentID), func(r chi.Router) {
 					r.Patch("/", handlerpullreq.HandleCommentUpdate(pullreqCtrl))
 					r.Delete("/", handlerpullreq.HandleCommentDelete(pullreqCtrl))
@@ -643,6 +668,7 @@ func setupResources(r chi.Router) {
 func setupPrincipals(r chi.Router, principalCtrl principal.Controller) {
 	r.Route("/principals", func(r chi.Router) {
 		r.Get("/", handlerprincipal.HandleList(principalCtrl))
+		r.Get(fmt.Sprintf("/{%s}", request.PathParamPrincipalID), handlerprincipal.HandleFind(principalCtrl))
 	})
 }
 

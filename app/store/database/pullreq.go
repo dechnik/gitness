@@ -58,10 +58,11 @@ type pullReq struct {
 	Version int64 `db:"pullreq_version"`
 	Number  int64 `db:"pullreq_number"`
 
-	CreatedBy int64 `db:"pullreq_created_by"`
-	Created   int64 `db:"pullreq_created"`
-	Updated   int64 `db:"pullreq_updated"`
-	Edited    int64 `db:"pullreq_edited"`
+	CreatedBy int64    `db:"pullreq_created_by"`
+	Created   int64    `db:"pullreq_created"`
+	Updated   int64    `db:"pullreq_updated"`
+	Edited    int64    `db:"pullreq_edited"`
+	Closed    null.Int `db:"pullreq_closed"`
 
 	State   enum.PullReqState `db:"pullreq_state"`
 	IsDraft bool              `db:"pullreq_is_draft"`
@@ -103,6 +104,7 @@ const (
 		,pullreq_created
 		,pullreq_updated
 		,pullreq_edited
+		,pullreq_closed
 		,pullreq_state
 		,pullreq_is_draft
 		,pullreq_comment_count
@@ -194,6 +196,7 @@ func (s *PullReqStore) Create(ctx context.Context, pr *types.PullReq) error {
 		,pullreq_created
 		,pullreq_updated
 		,pullreq_edited
+		,pullreq_closed
 		,pullreq_state
 		,pullreq_is_draft
 		,pullreq_comment_count
@@ -223,6 +226,7 @@ func (s *PullReqStore) Create(ctx context.Context, pr *types.PullReq) error {
 		,:pullreq_created
 		,:pullreq_updated
 		,:pullreq_edited
+		,:pullreq_closed
 		,:pullreq_state
 		,:pullreq_is_draft
 		,:pullreq_comment_count
@@ -269,6 +273,7 @@ func (s *PullReqStore) Update(ctx context.Context, pr *types.PullReq) error {
 	     pullreq_version = :pullreq_version
 		,pullreq_updated = :pullreq_updated
 		,pullreq_edited = :pullreq_edited
+		,pullreq_closed = :pullreq_closed
 		,pullreq_state = :pullreq_state
 		,pullreq_is_draft = :pullreq_is_draft
 		,pullreq_comment_count = :pullreq_comment_count
@@ -285,7 +290,7 @@ func (s *PullReqStore) Update(ctx context.Context, pr *types.PullReq) error {
 		,pullreq_merge_base_sha = :pullreq_merge_base_sha
 		,pullreq_merge_sha = :pullreq_merge_sha
 		,pullreq_merge_conflicts = :pullreq_merge_conflicts
-		,pullreq_commit_count = :pullreq_commit_count 
+		,pullreq_commit_count = :pullreq_commit_count
 		,pullreq_file_count = :pullreq_file_count
 	WHERE pullreq_id = :pullreq_id AND pullreq_version = :pullreq_version - 1`
 
@@ -356,20 +361,23 @@ func (s *PullReqStore) UpdateActivitySeq(ctx context.Context, pr *types.PullReq)
 	})
 }
 
-// UpdateMergeCheckStatus updates the pull request's mergeability status
+// ResetMergeCheckStatus resets the pull request's mergeability status to unchecked
 // for all pr which target branch points to targetBranch.
-func (s *PullReqStore) UpdateMergeCheckStatus(
+func (s *PullReqStore) ResetMergeCheckStatus(
 	ctx context.Context,
 	targetRepo int64,
 	targetBranch string,
-	status enum.MergeCheckStatus,
 ) error {
+	// NOTE: keep pullreq_merge_base_sha on old value as it's a required field.
 	const query = `
 	UPDATE pullreqs
 	SET
 		 pullreq_updated = $1
-		,pullreq_merge_check_status = $2
 		,pullreq_version = pullreq_version + 1
+		,pullreq_merge_check_status = $2
+		,pullreq_merge_target_sha = NULL
+		,pullreq_merge_sha = NULL
+		,pullreq_merge_conflicts = NULL
 		,pullreq_commit_count = NULL
 		,pullreq_file_count = NULL
 	WHERE pullreq_target_repo_id = $3 AND
@@ -380,10 +388,10 @@ func (s *PullReqStore) UpdateMergeCheckStatus(
 
 	now := time.Now().UnixMilli()
 
-	_, err := db.ExecContext(ctx, query, now, status, targetRepo, targetBranch,
+	_, err := db.ExecContext(ctx, query, now, enum.MergeCheckStatusUnchecked, targetRepo, targetBranch,
 		enum.PullReqStateClosed, enum.PullReqStateMerged)
 	if err != nil {
-		return database.ProcessSQLErrorf(ctx, err, "Failed to update mergeable status check %s in pull requests", status)
+		return database.ProcessSQLErrorf(ctx, err, "Failed to reset mergeable status check in pull requests")
 	}
 
 	return nil
@@ -434,8 +442,8 @@ func (s *PullReqStore) Count(ctx context.Context, opts *types.PullReqFilter) (in
 		stmt = stmt.Where("LOWER(pullreq_title) LIKE ?", fmt.Sprintf("%%%s%%", strings.ToLower(opts.Query)))
 	}
 
-	if opts.CreatedBy != 0 {
-		stmt = stmt.Where("pullreq_created_by = ?", opts.CreatedBy)
+	if len(opts.CreatedBy) > 0 {
+		stmt = stmt.Where(squirrel.Eq{"pullreq_created_by": opts.CreatedBy})
 	}
 
 	sql, args, err := stmt.ToSql()
@@ -486,8 +494,16 @@ func (s *PullReqStore) List(ctx context.Context, opts *types.PullReqFilter) ([]*
 		stmt = stmt.Where("LOWER(pullreq_title) LIKE ?", fmt.Sprintf("%%%s%%", strings.ToLower(opts.Query)))
 	}
 
-	if opts.CreatedBy != 0 {
-		stmt = stmt.Where("pullreq_created_by = ?", opts.CreatedBy)
+	if len(opts.CreatedBy) > 0 {
+		stmt = stmt.Where(squirrel.Eq{"pullreq_created_by": opts.CreatedBy})
+	}
+
+	if opts.CreatedLt > 0 {
+		stmt = stmt.Where("pullreq_created < ?", opts.CreatedLt)
+	}
+
+	if opts.CreatedGt > 0 {
+		stmt = stmt.Where("pullreq_created > ?", opts.CreatedGt)
 	}
 
 	stmt = stmt.Limit(database.Limit(opts.Size))
@@ -534,6 +550,7 @@ func mapPullReq(pr *pullReq) *types.PullReq {
 		Created:          pr.Created,
 		Updated:          pr.Updated,
 		Edited:           pr.Edited,
+		Closed:           pr.Closed.Ptr(),
 		State:            pr.State,
 		IsDraft:          pr.IsDraft,
 		CommentCount:     pr.CommentCount,
@@ -577,6 +594,7 @@ func mapInternalPullReq(pr *types.PullReq) *pullReq {
 		Created:          pr.Created,
 		Updated:          pr.Updated,
 		Edited:           pr.Edited,
+		Closed:           null.IntFromPtr(pr.Closed),
 		State:            pr.State,
 		IsDraft:          pr.IsDraft,
 		CommentCount:     pr.CommentCount,

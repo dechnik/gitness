@@ -16,9 +16,13 @@
 
 /* eslint-disable */
 // This is an auto-generated file
+export declare const aidaFeedback: string
+export declare const aidaGenText: string
 export declare const buttonsBar: string
+export declare const closeButton: string
 export declare const container: string
 export declare const dialog: string
+export declare const feedbackContainer: string
 export declare const hidden: string
 export declare const main: string
 export declare const markdownEditor: string

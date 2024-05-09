@@ -24,7 +24,6 @@ import (
 	"github.com/harness/gitness/app/services/webhook"
 	"github.com/harness/gitness/blob"
 	"github.com/harness/gitness/errors"
-	gittypes "github.com/harness/gitness/git/types"
 	"github.com/harness/gitness/lock"
 	"github.com/harness/gitness/store"
 	"github.com/harness/gitness/types/check"
@@ -34,13 +33,13 @@ import (
 
 func Translate(ctx context.Context, err error) *Error {
 	var (
-		rError                  *Error
-		checkError              *check.ValidationError
-		appError                *errors.Error
-		maxBytesErr             *http.MaxBytesError
-		codeOwnersTooLargeError *codeowners.TooLargeError
-		lockError               *lock.Error
-		pathNotFoundError       *gittypes.PathNotFoundError
+		rError                   *Error
+		checkError               *check.ValidationError
+		appError                 *errors.Error
+		maxBytesErr              *http.MaxBytesError
+		codeOwnersTooLargeError  *codeowners.TooLargeError
+		codeOwnersFileParseError *codeowners.FileParseError
+		lockError                *lock.Error
 	)
 
 	// print original error for debugging purposes
@@ -88,13 +87,6 @@ func Translate(ctx context.Context, err error) *Error {
 		return RequestTooLargef("The request is too large. maximum allowed size is %d bytes", maxBytesErr.Limit)
 
 	// git errors
-	case errors.As(err, &pathNotFoundError):
-		return Newf(
-			http.StatusNotFound,
-			pathNotFoundError.Error(),
-		)
-
-	// application errors
 	case errors.As(err, &appError):
 		if appError.Err != nil {
 			log.Ctx(ctx).Warn().Err(appError.Err).Msgf("Application error translation is omitting internal details.")
@@ -115,7 +107,8 @@ func Translate(ctx context.Context, err error) *Error {
 		return ErrCodeOwnersNotFound
 	case errors.As(err, &codeOwnersTooLargeError):
 		return UnprocessableEntityf(codeOwnersTooLargeError.Error())
-
+	case errors.As(err, &codeOwnersFileParseError):
+		return UnprocessableEntityf(codeOwnersFileParseError.Error())
 	// lock errors
 	case errors.As(err, &lockError):
 		return errorFromLockError(lockError)

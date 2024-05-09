@@ -15,6 +15,7 @@
 package request
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -29,6 +30,7 @@ const (
 	QueryParamSort      = "sort"
 	QueryParamOrder     = "order"
 	QueryParamQuery     = "query"
+	QueryParamRecursive = "recursive"
 
 	QueryParamState = "state"
 	QueryParamKind  = "kind"
@@ -37,7 +39,11 @@ const (
 	QueryParamAfter  = "after"
 	QueryParamBefore = "before"
 
-	QueryParamDeletedAt = "deleted_at"
+	QueryParamDeletedBeforeOrAt = "deleted_before_or_at"
+	QueryParamDeletedAt         = "deleted_at"
+
+	QueryParamCreatedLt = "created_lt"
+	QueryParamCreatedGt = "created_gt"
 
 	QueryParamPage  = "page"
 	QueryParamLimit = "limit"
@@ -49,6 +55,9 @@ const (
 	HeaderUserAgent       = "User-Agent"
 	HeaderAuthorization   = "Authorization"
 	HeaderContentEncoding = "Content-Encoding"
+
+	HeaderIfNoneMatch = "If-None-Match"
+	HeaderETag        = "ETag"
 )
 
 // GetOptionalRemainderFromPath returns the remainder ("*") from the path or an empty string if it doesn't exist.
@@ -56,7 +65,7 @@ func GetOptionalRemainderFromPath(r *http.Request) string {
 	return PathParamOrEmpty(r, PathParamRemainder)
 }
 
-// GetRemainderFromPath returns the remainder ("*") from the path or an an error if it doesn't exist.
+// GetRemainderFromPath returns the remainder ("*") from the path or an error if it doesn't exist.
 func GetRemainderFromPath(r *http.Request) (string, error) {
 	return PathParamOrError(r, PathParamRemainder)
 }
@@ -116,12 +125,51 @@ func ParseListQueryFilterFromRequest(r *http.Request) types.ListQueryFilter {
 	}
 }
 
+// ParseCreated extracts the created filter from the url query param.
+func ParseCreated(r *http.Request) (types.CreatedFilter, error) {
+	filter := types.CreatedFilter{}
+
+	createdLt, err := QueryParamAsPositiveInt64OrDefault(r, QueryParamCreatedLt, 0)
+	if err != nil {
+		return filter, fmt.Errorf("encountered error parsing created lt: %w", err)
+	}
+
+	createdGt, err := QueryParamAsPositiveInt64OrDefault(r, QueryParamCreatedGt, 0)
+	if err != nil {
+		return filter, fmt.Errorf("encountered error parsing created gt: %w", err)
+	}
+
+	filter.CreatedGt = createdGt
+	filter.CreatedLt = createdLt
+
+	return filter, nil
+}
+
 // GetContentEncodingFromHeadersOrDefault returns the content encoding from the request headers.
 func GetContentEncodingFromHeadersOrDefault(r *http.Request, dflt string) string {
 	return GetHeaderOrDefault(r, HeaderContentEncoding, dflt)
 }
 
-// GetDeletedAtFromQuery extracts the resource deleted timestamp from the query.
-func GetDeletedAtFromQuery(r *http.Request) (int64, error) {
+// ParseRecursiveFromQuery extracts the recursive option from the URL query.
+func ParseRecursiveFromQuery(r *http.Request) (bool, error) {
+	return QueryParamAsBoolOrDefault(r, QueryParamRecursive, false)
+}
+
+// GetDeletedAtFromQueryOrError gets the exact resource deletion timestamp from the query.
+func GetDeletedAtFromQueryOrError(r *http.Request) (int64, error) {
+	return QueryParamAsPositiveInt64OrError(r, QueryParamDeletedAt)
+}
+
+// GetDeletedBeforeOrAtFromQuery gets the resource deletion timestamp from the query as an optional parameter.
+func GetDeletedBeforeOrAtFromQuery(r *http.Request) (int64, bool, error) {
+	return QueryParamAsPositiveInt64(r, QueryParamDeletedBeforeOrAt)
+}
+
+// GetDeletedAtFromQuery gets the exact resource deletion timestamp from the query as an optional parameter.
+func GetDeletedAtFromQuery(r *http.Request) (int64, bool, error) {
 	return QueryParamAsPositiveInt64(r, QueryParamDeletedAt)
+}
+
+func GetIfNoneMatchFromHeader(r *http.Request) (string, bool) {
+	return GetHeader(r, HeaderIfNoneMatch)
 }

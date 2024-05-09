@@ -22,7 +22,7 @@ import { Link, useHistory } from 'react-router-dom'
 import { useGet } from 'restful-react'
 import type { CellProps, Column } from 'react-table'
 import { Case, Match, Render, Truthy } from 'react-jsx-match'
-import { defaultTo } from 'lodash-es'
+import { defaultTo, noop } from 'lodash-es'
 import { makeDiffRefs, PullRequestFilterOption } from 'utils/GitUtils'
 import { useAppContext } from 'AppContext'
 import { useGetRepositoryMetadata } from 'hooks/useGetRepositoryMetadata'
@@ -52,19 +52,27 @@ export default function PullRequests() {
   const history = useHistory()
   const { routes } = useAppContext()
   const [searchTerm, setSearchTerm] = useState<string | undefined>()
-  const [filter, setFilter] = useState(PullRequestFilterOption.OPEN as string)
+  const browserParams = useQueryParams<PageBrowserProps>()
+  const [filter, setFilter] = useState(browserParams?.state || (PullRequestFilterOption.OPEN as string))
   const [authorFilter, setAuthorFilter] = useState<string>()
   const space = useGetSpaceParam()
-  const { updateQueryParams } = useUpdateQueryParams()
-
-  const pageBrowser = useQueryParams<PageBrowserProps>()
-  const pageInit = pageBrowser.page ? parseInt(pageBrowser.page) : 1
+  const { updateQueryParams, replaceQueryParams } = useUpdateQueryParams()
+  const pageInit = browserParams.page ? parseInt(browserParams.page) : 1
   const [page, setPage] = usePageIndex(pageInit)
   useEffect(() => {
-    if (page > 1) {
-      updateQueryParams({ page: page.toString() })
+    const params = {
+      ...browserParams,
+      ...(page > 1 && { page: page.toString() }),
+      ...(filter && { state: filter })
     }
-  }, [setPage]) // eslint-disable-line react-hooks/exhaustive-deps
+    updateQueryParams(params, undefined, true)
+
+    if (page <= 1) {
+      const updateParams = { ...params }
+      delete updateParams.page
+      replaceQueryParams(updateParams, undefined, true)
+    }
+  }, [page, filter]) // eslint-disable-line react-hooks/exhaustive-deps
   const { repoMetadata, error, loading, refetch } = useGetRepositoryMetadata()
   const {
     data,
@@ -76,11 +84,11 @@ export default function PullRequests() {
     path: `/api/v1/repos/${repoMetadata?.path}/+/pullreq`,
     queryParams: {
       limit: String(LIST_FETCHING_LIMIT),
-      page,
+      page: browserParams.page,
       sort: filter == PullRequestFilterOption.MERGED ? 'merged' : 'number',
       order: 'desc',
       query: searchTerm,
-      state: filter == PullRequestFilterOption.ALL ? '' : filter,
+      state: browserParams.state ? browserParams.state : filter == PullRequestFilterOption.ALL ? '' : filter,
       ...(authorFilter && { created_by: Number(authorFilter) })
     },
     debounce: 500,
@@ -109,7 +117,8 @@ export default function PullRequests() {
   const permPushResult = hooks?.usePermissionTranslate?.(
     {
       resource: {
-        resourceType: 'CODE_REPOSITORY'
+        resourceType: 'CODE_REPOSITORY',
+        resourceIdentifier: repoMetadata?.uid as string
       },
       permissions: ['code_repo_push']
     },
@@ -157,7 +166,7 @@ export default function PullRequests() {
                           <StringSubstitute
                             str={getString('pr.statusLine')}
                             vars={{
-                              state: <strong className={css.state}>{row.original.state}</strong>,
+                              state: row.original.state,
                               number: <Text inline>{row.original.number}</Text>,
                               time: (
                                 <strong>
@@ -171,6 +180,7 @@ export default function PullRequests() {
                                     inline={false}
                                     font={{ variation: FontVariation.SMALL_BOLD }}
                                     color={Color.GREY_500}
+                                    tag="span"
                                   />
                                 </strong>
                               ),
@@ -261,14 +271,7 @@ export default function PullRequests() {
                       columns={columns}
                       data={data || []}
                       getRowClassName={() => css.row}
-                      onRowClick={row => {
-                        history.push(
-                          routes.toCODEPullRequest({
-                            repoPath: repoMetadata?.path as string,
-                            pullRequestId: String(row.number)
-                          })
-                        )
-                      }}
+                      onRowClick={noop}
                     />
                     <ResourceListingPagination response={response} page={page} setPage={setPage} />
                   </>

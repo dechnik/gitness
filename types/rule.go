@@ -19,6 +19,8 @@ import (
 	"fmt"
 
 	"github.com/harness/gitness/types/enum"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Rule struct {
@@ -57,6 +59,68 @@ func (r Rule) MarshalJSON() ([]byte, error) {
 		alias: (alias)(r),
 		UID:   r.Identifier,
 	})
+}
+
+func (r Rule) MarshalYAML() (interface{}, error) {
+	// yaml cannot marshal json.RawMessage
+	pattern := make(map[string]any)
+	err := yaml.Unmarshal(r.Pattern, pattern)
+	if err != nil {
+		return nil, err
+	}
+	definition := make(map[string]any)
+	err = yaml.Unmarshal(r.Definition, definition)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"id":          r.ID,
+		"created":     r.Created,
+		"updated":     r.Updated,
+		"created_by":  r.CreatedBy,
+		"identifier":  r.Identifier,
+		"description": r.Description,
+		"type":        r.Type,
+		"state":       r.State,
+		"pattern":     pattern,
+		"definition":  definition,
+	}, nil
+}
+
+// Clone makes deep copy of the rule object.
+func (r Rule) Clone() Rule {
+	var repoID *int64
+	var spaceID *int64
+
+	if r.RepoID != nil {
+		id := *r.RepoID
+		repoID = &id
+	}
+
+	if r.SpaceID != nil {
+		id := *r.SpaceID
+		spaceID = &id
+	}
+
+	r.RepoID = repoID
+	r.SpaceID = spaceID
+
+	pattern := make(json.RawMessage, len(r.Pattern))
+	copy(pattern, r.Pattern)
+	r.Pattern = pattern
+
+	definition := make(json.RawMessage, len(r.Definition))
+	copy(definition, r.Definition)
+	r.Definition = definition
+
+	users := make(map[int64]*PrincipalInfo, len(r.Users))
+	for key, value := range r.Users {
+		cloned := *value
+		users[key] = &cloned
+	}
+	r.Users = users
+
+	return r
 }
 
 type RuleType string
@@ -100,7 +164,11 @@ func (violations *RuleViolations) Addf(code, format string, params ...any) {
 }
 
 func (violations *RuleViolations) IsCritical() bool {
-	return violations.Rule.State == enum.RuleStateActive && !violations.Bypassed && len(violations.Violations) > 0
+	return violations.Rule.State == enum.RuleStateActive && len(violations.Violations) > 0 && !violations.Bypassed
+}
+
+func (violations *RuleViolations) IsBypassed() bool {
+	return violations.Rule.State == enum.RuleStateActive && len(violations.Violations) > 0 && violations.Bypassed
 }
 
 // RuleInfo holds basic info about a rule that is used to describe the rule in RuleViolations.

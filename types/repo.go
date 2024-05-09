@@ -23,36 +23,50 @@ import (
 // Repository represents a code repository.
 type Repository struct {
 	// TODO: int64 ID doesn't match DB
-	ID          int64  `json:"id"`
-	Version     int64  `json:"-"`
-	ParentID    int64  `json:"parent_id"`
-	Identifier  string `json:"identifier"`
-	Path        string `json:"path"`
-	Description string `json:"description"`
-	IsPublic    bool   `json:"is_public"`
-	CreatedBy   int64  `json:"created_by"`
-	Created     int64  `json:"created"`
-	Updated     int64  `json:"updated"`
-	Deleted     *int64 `json:"deleted,omitempty"`
+	ID          int64  `json:"id" yaml:"id"`
+	Version     int64  `json:"-" yaml:"-"`
+	ParentID    int64  `json:"parent_id" yaml:"parent_id"`
+	Identifier  string `json:"identifier" yaml:"identifier"`
+	Path        string `json:"path" yaml:"path"`
+	Description string `json:"description" yaml:"description"`
+	IsPublic    bool   `json:"is_public" yaml:"is_public"`
+	CreatedBy   int64  `json:"created_by" yaml:"created_by"`
+	Created     int64  `json:"created" yaml:"created"`
+	Updated     int64  `json:"updated" yaml:"updated"`
+	Deleted     *int64 `json:"deleted,omitempty" yaml:"deleted"`
 
-	Size        int64 `json:"size"`
-	SizeUpdated int64 `json:"size_updated"`
+	// Size of the repository in KiB.
+	Size int64 `json:"size" yaml:"size"`
+	// SizeUpdated is the time when the Size was last updated.
+	SizeUpdated int64 `json:"size_updated" yaml:"size_updated"`
 
-	GitUID        string `json:"-"`
-	DefaultBranch string `json:"default_branch"`
-	ForkID        int64  `json:"fork_id"`
-	PullReqSeq    int64  `json:"-"`
+	GitUID        string `json:"-" yaml:"-"`
+	DefaultBranch string `json:"default_branch" yaml:"default_branch"`
+	ForkID        int64  `json:"fork_id" yaml:"fork_id"`
+	PullReqSeq    int64  `json:"-" yaml:"-"`
 
-	NumForks       int `json:"num_forks"`
-	NumPulls       int `json:"num_pulls"`
-	NumClosedPulls int `json:"num_closed_pulls"`
-	NumOpenPulls   int `json:"num_open_pulls"`
-	NumMergedPulls int `json:"num_merged_pulls"`
+	NumForks       int `json:"num_forks" yaml:"num_forks"`
+	NumPulls       int `json:"num_pulls" yaml:"num_pulls"`
+	NumClosedPulls int `json:"num_closed_pulls" yaml:"num_closed_pulls"`
+	NumOpenPulls   int `json:"num_open_pulls" yaml:"num_open_pulls"`
+	NumMergedPulls int `json:"num_merged_pulls" yaml:"num_merged_pulls"`
 
-	Importing bool `json:"importing"`
+	Importing bool `json:"importing" yaml:"-"`
+	IsEmpty   bool `json:"is_empty,omitempty" yaml:"is_empty"`
 
 	// git urls
-	GitURL string `json:"git_url"`
+	GitURL string `json:"git_url" yaml:"git_url"`
+}
+
+// Clone makes deep copy of repository object.
+func (r Repository) Clone() Repository {
+	var deleted *int64
+	if r.Deleted != nil {
+		id := *r.Deleted
+		deleted = &id
+	}
+	r.Deleted = deleted
+	return r
 }
 
 // TODO [CODE-1363]: remove after identifier migration.
@@ -69,10 +83,12 @@ func (r Repository) MarshalJSON() ([]byte, error) {
 }
 
 type RepositorySizeInfo struct {
-	ID          int64  `json:"id"`
-	GitUID      string `json:"git_uid"`
-	Size        int64  `json:"size"`
-	SizeUpdated int64  `json:"size_updated"`
+	ID     int64  `json:"id"`
+	GitUID string `json:"git_uid"`
+	// Size of the repository in KiB.
+	Size int64 `json:"size"`
+	// SizeUpdated is the time when the Size was last updated.
+	SizeUpdated int64 `json:"size_updated"`
 }
 
 func (r Repository) GetGitUID() string {
@@ -86,6 +102,7 @@ type RepoFilter struct {
 	Query             string        `json:"query"`
 	Sort              enum.RepoAttr `json:"sort"`
 	Order             enum.Order    `json:"order"`
+	DeletedAt         *int64        `json:"deleted_at,omitempty"`
 	DeletedBeforeOrAt *int64        `json:"deleted_before_or_at,omitempty"`
 	Recursive         bool
 }

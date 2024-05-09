@@ -26,6 +26,7 @@ import (
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git"
+	"github.com/harness/gitness/git/sha"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 )
@@ -41,7 +42,7 @@ type CommitFileAction struct {
 	// The provided value is compared against the latest sha of the file that's being updated.
 	// If the SHA doesn't match, the update fails.
 	// WARNING: If no SHA is provided, the update action will blindly overwrite the file's content.
-	SHA string `json:"sha"`
+	SHA sha.SHA `json:"sha"`
 }
 
 // CommitFilesOptions holds the data for file operations.
@@ -61,12 +62,7 @@ func (c *Controller) CommitFiles(ctx context.Context,
 	repoRef string,
 	in *CommitFilesOptions,
 ) (types.CommitFilesResponse, []types.RuleViolations, error) {
-	requiredPermission := enum.PermissionRepoPush
-	if in.DryRunRules {
-		requiredPermission = enum.PermissionRepoView
-	}
-
-	repo, err := c.getRepoCheckAccess(ctx, session, repoRef, requiredPermission, false)
+	repo, err := c.getRepoCheckAccess(ctx, session, repoRef, enum.PermissionRepoPush, false)
 	if err != nil {
 		return types.CommitFilesResponse{}, nil, err
 	}
@@ -158,7 +154,7 @@ func (c *Controller) CommitFiles(ctx context.Context,
 	}
 
 	return types.CommitFilesResponse{
-		CommitID:       commit.CommitID,
+		CommitID:       commit.CommitID.String(),
 		RuleViolations: violations,
 	}, nil, nil
 }

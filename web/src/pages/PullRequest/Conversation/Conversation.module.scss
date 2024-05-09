@@ -134,6 +134,12 @@
   :global {
     .d2h-code-linenumber {
       cursor: default;
+      display: flex;
+      flex-direction: row-reverse;
+
+      .annotation-for-line {
+        display: none;
+      }
     }
   }
 
@@ -185,6 +191,16 @@
 
       .d2h-code-side-linenumber {
         width: 56px;
+      }
+
+      tr {
+        td:first-of-type {
+          z-index: 2;
+        }
+
+        td:last-of-type > div {
+          z-index: 0;
+        }
       }
     }
   }
@@ -252,6 +268,33 @@
   }
 }
 
+.popoverDescriptionbox {
+  :global {
+    .bp3-popover-content {
+      padding: var(--spacing-small);
+      max-width: 700px;
+      word-break: break-all;
+    }
+  }
+}
+
 .copyButton {
   --button-height: 14px !important;
+}
+
+.textPadding {
+  padding-left: var(--spacing-xsmall);
+  padding-right: var(--spacing-xsmall);
+}
+
+.rightTextPadding {
+  padding-right: var(--spacing-xsmall);
+}
+
+.aidaIcon {
+  :global(> svg) {
+    border-radius: 4px !important;
+    background: linear-gradient(317deg, #5e2ce0 11.36%, #a652f9 79.62%) !important;
+    padding: 2px !important;
+  }
 }

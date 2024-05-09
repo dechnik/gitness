@@ -25,7 +25,6 @@ import (
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git"
-	gittypes "github.com/harness/gitness/git/types"
 	gitness_store "github.com/harness/gitness/store"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
@@ -52,10 +51,6 @@ type TooLargeError struct {
 	FileSize int64
 }
 
-func IsTooLargeError(err error) bool {
-	return errors.Is(err, &TooLargeError{})
-}
-
 func (e *TooLargeError) Error() string {
 	return fmt.Sprintf(
 		"The repository's CODEOWNERS file size %.2fMB exceeds the maximum supported size of %dMB",
@@ -67,6 +62,22 @@ func (e *TooLargeError) Error() string {
 //nolint:errorlint // the purpose of this method is to check whether the target itself if of this type.
 func (e *TooLargeError) Is(target error) bool {
 	_, ok := target.(*TooLargeError)
+	return ok
+}
+
+// FileParseError represents an error if codeowners file is not parsable.
+type FileParseError struct {
+	line string
+}
+
+func (e *FileParseError) Error() string {
+	return fmt.Sprintf(
+		"The repository's CODEOWNERS file has an invalid line: %s", e.line,
+	)
+}
+
+func (e *FileParseError) Is(target error) bool {
+	_, ok := target.(*FileParseError)
 	return ok
 }
 
@@ -174,7 +185,7 @@ func (s *Service) parseCodeOwner(codeOwnersContent string) ([]Entry, error) {
 
 		parts := strings.Split(line, " ")
 		if len(parts) < 2 {
-			return nil, fmt.Errorf("line has invalid format: '%s'", line)
+			return nil, &FileParseError{line}
 		}
 
 		pattern := parts[0]
@@ -237,7 +248,7 @@ func (s *Service) getCodeOwnerFile(
 
 	return &File{
 		Content:   string(content),
-		SHA:       output.SHA,
+		SHA:       output.SHA.String(),
 		TotalSize: output.Size,
 	}, nil
 }
@@ -256,7 +267,7 @@ func (s *Service) getCodeOwnerFileNode(
 			Path:       path,
 		})
 
-		if gittypes.IsPathNotFoundError(err) {
+		if errors.IsNotFound(err) {
 			continue
 		}
 		if err != nil {

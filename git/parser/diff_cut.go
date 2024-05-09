@@ -17,35 +17,51 @@ package parser
 import (
 	"bufio"
 	"errors"
+	"fmt"
 	"io"
-
-	"github.com/harness/gitness/git/types"
+	"unicode/utf8"
 )
+
+type DiffFileHeader struct {
+	OldFileName string
+	NewFileName string
+	Extensions  map[string]string
+}
+
+type DiffCutParams struct {
+	LineStart    int
+	LineStartNew bool
+	LineEnd      int
+	LineEndNew   bool
+	BeforeLines  int
+	AfterLines   int
+	LineLimit    int
+}
 
 // DiffCut parses git diff output that should consist of a single hunk
 // (usually generated with large value passed to the "--unified" parameter)
 // and returns lines specified with the parameters.
 //
 //nolint:funlen,gocognit,nestif,gocognit,gocyclo,cyclop // it's actually very readable
-func DiffCut(r io.Reader, params types.DiffCutParams) (types.HunkHeader, types.Hunk, error) {
+func DiffCut(r io.Reader, params DiffCutParams) (HunkHeader, Hunk, error) {
 	scanner := bufio.NewScanner(r)
 
 	var err error
-	var hunkHeader types.HunkHeader
+	var hunkHeader HunkHeader
 
 	if _, err = scanFileHeader(scanner); err != nil {
-		return types.HunkHeader{}, types.Hunk{}, err
+		return HunkHeader{}, Hunk{}, err
 	}
 
 	if hunkHeader, err = scanHunkHeader(scanner); err != nil {
-		return types.HunkHeader{}, types.Hunk{}, err
+		return HunkHeader{}, Hunk{}, err
 	}
 
 	currentOldLine := hunkHeader.OldLine
 	currentNewLine := hunkHeader.NewLine
 
 	var inCut bool
-	var diffCutHeader types.HunkHeader
+	var diffCutHeader HunkHeader
 	var diffCut []string
 
 	linesBeforeBuf := newStrCircBuf(params.BeforeLines)
@@ -61,7 +77,7 @@ func DiffCut(r io.Reader, params types.DiffCutParams) (types.HunkHeader, types.H
 
 		line, action, err = scanHunkLine(scanner)
 		if err != nil {
-			return types.HunkHeader{}, types.Hunk{}, err
+			return HunkHeader{}, Hunk{}, err
 		}
 
 		if line == "" {
@@ -88,7 +104,7 @@ func DiffCut(r io.Reader, params types.DiffCutParams) (types.HunkHeader, types.H
 			}
 
 			diffCut = append(diffCut, line)
-			if len(diffCut) > params.LineLimit {
+			if params.LineLimit > 0 && len(diffCut) >= params.LineLimit {
 				break // safety break
 			}
 		}
@@ -103,7 +119,7 @@ func DiffCut(r io.Reader, params types.DiffCutParams) (types.HunkHeader, types.H
 	}
 
 	if !inCut {
-		return types.HunkHeader{}, types.Hunk{}, types.ErrHunkNotFound
+		return HunkHeader{}, Hunk{}, ErrHunkNotFound
 	}
 
 	var (
@@ -116,7 +132,7 @@ func DiffCut(r io.Reader, params types.DiffCutParams) (types.HunkHeader, types.H
 		for i := 0; i < params.AfterLines; i++ {
 			line, _, err := scanHunkLine(scanner)
 			if err != nil {
-				return types.HunkHeader{}, types.Hunk{}, err
+				return HunkHeader{}, Hunk{}, err
 			}
 			if line == "" {
 				break
@@ -149,14 +165,14 @@ func DiffCut(r io.Reader, params types.DiffCutParams) (types.HunkHeader, types.H
 		}
 	}
 
-	return diffCutHeader, types.Hunk{
+	return diffCutHeader, Hunk{
 		HunkHeader: diffCutHeaderLines,
 		Lines:      concat(linesBefore, diffCut, linesAfter),
 	}, nil
 }
 
 // scanFileHeader keeps reading lines until file header line is read.
-func scanFileHeader(scan *bufio.Scanner) (types.DiffFileHeader, error) {
+func scanFileHeader(scan *bufio.Scanner) (DiffFileHeader, error) {
 	for scan.Scan() {
 		line := scan.Text()
 		if h, ok := ParseDiffFileHeader(line); ok {
@@ -165,14 +181,14 @@ func scanFileHeader(scan *bufio.Scanner) (types.DiffFileHeader, error) {
 	}
 
 	if err := scan.Err(); err != nil {
-		return types.DiffFileHeader{}, err
+		return DiffFileHeader{}, err
 	}
 
-	return types.DiffFileHeader{}, types.ErrHunkNotFound
+	return DiffFileHeader{}, ErrHunkNotFound
 }
 
 // scanHunkHeader keeps reading lines until hunk header line is read.
-func scanHunkHeader(scan *bufio.Scanner) (types.HunkHeader, error) {
+func scanHunkHeader(scan *bufio.Scanner) (HunkHeader, error) {
 	for scan.Scan() {
 		line := scan.Text()
 		if h, ok := ParseDiffHunkHeader(line); ok {
@@ -181,10 +197,10 @@ func scanHunkHeader(scan *bufio.Scanner) (types.HunkHeader, error) {
 	}
 
 	if err := scan.Err(); err != nil {
-		return types.HunkHeader{}, err
+		return HunkHeader{}, err
 	}
 
-	return types.HunkHeader{}, types.ErrHunkNotFound
+	return HunkHeader{}, ErrHunkNotFound
 }
 
 type diffAction byte
@@ -206,7 +222,7 @@ again:
 
 	line = scan.Text()
 	if line == "" {
-		err = types.ErrHunkNotFound // should not happen: empty line in diff output
+		err = ErrHunkNotFound // should not happen: empty line in diff output
 		return
 	}
 
@@ -223,6 +239,97 @@ again:
 	}
 
 	return
+}
+
+// BlobCut parses raw file and returns lines specified with the parameter.
+func BlobCut(r io.Reader, params DiffCutParams) (CutHeader, Cut, error) {
+	scanner := bufio.NewScanner(r)
+
+	var (
+		err               error
+		lineNumber        int
+		inCut             bool
+		cutStart, cutSpan int
+		cutLines          []string
+	)
+
+	extStart := params.LineStart - params.BeforeLines
+	extEnd := params.LineEnd + params.AfterLines
+	linesNeeded := params.LineEnd - params.LineStart + 1
+
+	for {
+		if !scanner.Scan() {
+			err = scanner.Err()
+			break
+		}
+
+		lineNumber++
+		line := scanner.Text()
+
+		if !utf8.ValidString(line) {
+			return CutHeader{}, Cut{}, ErrBinaryFile
+		}
+
+		if lineNumber > extEnd {
+			break // exceeded the requested line range
+		}
+
+		if lineNumber < extStart {
+			// not yet in the requested line range
+			continue
+		}
+
+		if !inCut {
+			cutStart = lineNumber
+			inCut = true
+		}
+		cutLines = append(cutLines, line)
+		cutSpan++
+
+		if lineNumber >= params.LineStart && lineNumber <= params.LineEnd {
+			linesNeeded--
+		}
+
+		if params.LineLimit > 0 && len(cutLines) >= params.LineLimit {
+			break
+		}
+	}
+
+	if errors.Is(err, bufio.ErrTooLong) {
+		// By default, the max token size is 65536 (bufio.MaxScanTokenSize).
+		// If the file contains a line that is longer than this we treat it as a binary file.
+		return CutHeader{}, Cut{}, ErrBinaryFile
+	}
+
+	if err != nil && !errors.Is(err, io.EOF) {
+		return CutHeader{}, Cut{}, fmt.Errorf("failed to parse blob cut: %w", err)
+	}
+
+	if !inCut || linesNeeded > 0 {
+		return CutHeader{}, Cut{}, ErrHunkNotFound
+	}
+
+	// the cut header is hunk-like header (with Line and Span) that describes the requested lines exactly
+	ch := CutHeader{Line: params.LineStart, Span: params.LineEnd - params.LineStart + 1}
+
+	// the cut includes the requested lines and few more lines specified with the BeforeLines and AfterLines.
+	c := Cut{CutHeader: CutHeader{Line: cutStart, Span: cutSpan}, Lines: cutLines}
+
+	return ch, c, nil
+}
+
+func LimitLineLen(lines *[]string, maxLen int) {
+outer:
+	for idxLine, line := range *lines {
+		var l int
+		for idxRune := range line {
+			l++
+			if l > maxLen {
+				(*lines)[idxLine] = line[:idxRune] + "…" // append the ellipsis to indicate that the line was trimmed.
+				continue outer
+			}
+		}
+	}
 }
 
 type strCircBuf struct {

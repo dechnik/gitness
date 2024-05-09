@@ -21,24 +21,26 @@ import (
 	"strings"
 
 	"github.com/harness/gitness/app/api/usererror"
-	gittypes "github.com/harness/gitness/git/types"
+	gittypes "github.com/harness/gitness/git/api"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 )
 
 const (
-	QueryParamGitRef        = "git_ref"
-	QueryParamIncludeCommit = "include_commit"
-	PathParamCommitSHA      = "commit_sha"
-	QueryParamLineFrom      = "line_from"
-	QueryParamLineTo        = "line_to"
-	QueryParamPath          = "path"
-	QueryParamSince         = "since"
-	QueryParamUntil         = "until"
-	QueryParamCommitter     = "committer"
-	QueryParamInternal      = "internal"
-	QueryParamService       = "service"
-	HeaderParamGitProtocol  = "Git-Protocol"
+	QueryParamGitRef             = "git_ref"
+	QueryParamIncludeCommit      = "include_commit"
+	QueryParamIncludeDirectories = "include_directories"
+	PathParamCommitSHA           = "commit_sha"
+	QueryParamLineFrom           = "line_from"
+	QueryParamLineTo             = "line_to"
+	QueryParamPath               = "path"
+	QueryParamSince              = "since"
+	QueryParamUntil              = "until"
+	QueryParamCommitter          = "committer"
+	QueryParamIncludeStats       = "include_stats"
+	QueryParamInternal           = "internal"
+	QueryParamService            = "service"
+	HeaderParamGitProtocol       = "Git-Protocol"
 )
 
 func GetGitRefFromQueryOrDefault(r *http.Request, deflt string) string {
@@ -47,6 +49,10 @@ func GetGitRefFromQueryOrDefault(r *http.Request, deflt string) string {
 
 func GetIncludeCommitFromQueryOrDefault(r *http.Request, deflt bool) (bool, error) {
 	return QueryParamAsBoolOrDefault(r, QueryParamIncludeCommit, deflt)
+}
+
+func GetIncludeDirectoriesFromQueryOrDefault(r *http.Request, deflt bool) (bool, error) {
+	return QueryParamAsBoolOrDefault(r, QueryParamIncludeDirectories, deflt)
 }
 
 func GetCommitSHAFromPath(r *http.Request) (string, error) {
@@ -101,16 +107,22 @@ func ParseCommitFilter(r *http.Request) (*types.CommitFilter, error) {
 	if err != nil {
 		return nil, err
 	}
+	includeStats, err := QueryParamAsBoolOrDefault(r, QueryParamIncludeStats, false)
+	if err != nil {
+		return nil, err
+	}
+
 	return &types.CommitFilter{
 		After: QueryParamOrDefault(r, QueryParamAfter, ""),
 		PaginationFilter: types.PaginationFilter{
 			Page:  ParsePage(r),
 			Limit: ParseLimit(r),
 		},
-		Path:      QueryParamOrDefault(r, QueryParamPath, ""),
-		Since:     since,
-		Until:     until,
-		Committer: QueryParamOrDefault(r, QueryParamCommitter, ""),
+		Path:         QueryParamOrDefault(r, QueryParamPath, ""),
+		Since:        since,
+		Until:        until,
+		Committer:    QueryParamOrDefault(r, QueryParamCommitter, ""),
+		IncludeStats: includeStats,
 	}, nil
 }
 

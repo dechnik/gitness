@@ -42,11 +42,13 @@ func NewRepoStore(
 	db *sqlx.DB,
 	spacePathCache store.SpacePathCache,
 	spacePathStore store.SpacePathStore,
+	spaceStore store.SpaceStore,
 ) *RepoStore {
 	return &RepoStore{
 		db:             db,
 		spacePathCache: spacePathCache,
 		spacePathStore: spacePathStore,
+		spaceStore:     spaceStore,
 	}
 }
 
@@ -55,6 +57,7 @@ type RepoStore struct {
 	db             *sqlx.DB
 	spacePathCache store.SpacePathCache
 	spacePathStore store.SpacePathStore
+	spaceStore     store.SpaceStore
 }
 
 type repository struct {
@@ -85,6 +88,7 @@ type repository struct {
 	NumMergedPulls int `db:"repo_num_merged_pulls"`
 
 	Importing bool `db:"repo_importing"`
+	IsEmpty   bool `db:"repo_is_empty"`
 }
 
 const (
@@ -110,7 +114,8 @@ const (
 		,repo_num_closed_pulls
 		,repo_num_open_pulls
 		,repo_num_merged_pulls
-		,repo_importing`
+		,repo_importing
+		,repo_is_empty`
 )
 
 // Find finds the repo by id.
@@ -235,6 +240,7 @@ func (s *RepoStore) Create(ctx context.Context, repo *types.Repository) error {
 			,repo_num_open_pulls
 			,repo_num_merged_pulls
 			,repo_importing
+			,repo_is_empty
 		) values (
 			:repo_version
 			,:repo_parent_id
@@ -257,6 +263,7 @@ func (s *RepoStore) Create(ctx context.Context, repo *types.Repository) error {
 			,:repo_num_open_pulls
 			,:repo_num_merged_pulls
 			,:repo_importing
+			,:repo_is_empty
 		) RETURNING repo_id`
 
 	db := dbtx.GetAccessor(ctx, s.db)
@@ -300,6 +307,7 @@ func (s *RepoStore) Update(ctx context.Context, repo *types.Repository) error {
 			,repo_num_open_pulls = :repo_num_open_pulls
 			,repo_num_merged_pulls = :repo_num_merged_pulls
 			,repo_importing = :repo_importing
+			,repo_is_empty = :repo_is_empty
 		WHERE repo_id = :repo_id AND repo_version = :repo_version - 1`
 
 	dbRepo := mapToInternalRepo(repo)
@@ -341,11 +349,11 @@ func (s *RepoStore) Update(ctx context.Context, repo *types.Repository) error {
 	return nil
 }
 
-// UpdateSize updates the size of a specific repository in the database.
-func (s *RepoStore) UpdateSize(ctx context.Context, id int64, size int64) error {
+// UpdateSize updates the size of a specific repository in the database (size is in KiB).
+func (s *RepoStore) UpdateSize(ctx context.Context, id int64, sizeInKiB int64) error {
 	stmt := database.Builder.
 		Update("repositories").
-		Set("repo_size", size).
+		Set("repo_size", sizeInKiB).
 		Set("repo_size_updated", time.Now().UnixMilli()).
 		Where("repo_id = ? AND repo_deleted IS NULL", id)
 
@@ -492,12 +500,16 @@ func (s *RepoStore) Purge(ctx context.Context, id int64, deletedAt *int64) error
 func (s *RepoStore) Restore(
 	ctx context.Context,
 	repo *types.Repository,
-	newIdentifier string,
+	newIdentifier *string,
+	newParentID *int64,
 ) (*types.Repository, error) {
 	repo, err := s.updateDeletedOptLock(ctx, repo, func(r *types.Repository) error {
 		r.Deleted = nil
-		if newIdentifier != "" {
-			r.Identifier = newIdentifier
+		if newIdentifier != nil {
+			r.Identifier = *newIdentifier
+		}
+		if newParentID != nil {
+			r.ParentID = *newParentID
 		}
 		return nil
 	})
@@ -739,6 +751,7 @@ func (s *RepoStore) mapToRepo(
 		NumOpenPulls:   in.NumOpenPulls,
 		NumMergedPulls: in.NumMergedPulls,
 		Importing:      in.Importing,
+		IsEmpty:        in.IsEmpty,
 		// Path: is set below
 	}
 
@@ -752,10 +765,14 @@ func (s *RepoStore) mapToRepo(
 
 func (s *RepoStore) getRepoPath(ctx context.Context, parentID int64, repoIdentifier string) (string, error) {
 	spacePath, err := s.spacePathStore.FindPrimaryBySpaceID(ctx, parentID)
+	// try to re-create the space path if was soft deleted.
+	if errors.Is(err, gitness_store.ErrResourceNotFound) {
+		return getPathForDeletedSpace(ctx, s.db, parentID)
+	}
 	if err != nil {
 		return "", fmt.Errorf("failed to get primary path for space %d: %w", parentID, err)
 	}
-	return paths.Concatinate(spacePath.Value, repoIdentifier), nil
+	return paths.Concatenate(spacePath.Value, repoIdentifier), nil
 }
 
 func (s *RepoStore) mapToRepos(
@@ -818,6 +835,7 @@ func mapToInternalRepo(in *types.Repository) *repository {
 		NumOpenPulls:   in.NumOpenPulls,
 		NumMergedPulls: in.NumMergedPulls,
 		Importing:      in.Importing,
+		IsEmpty:        in.IsEmpty,
 	}
 }
 
@@ -825,7 +843,10 @@ func applyQueryFilter(stmt squirrel.SelectBuilder, filter *types.RepoFilter) squ
 	if filter.Query != "" {
 		stmt = stmt.Where("LOWER(repo_uid) LIKE ?", fmt.Sprintf("%%%s%%", strings.ToLower(filter.Query)))
 	}
-	if filter.DeletedBeforeOrAt != nil {
+	//nolint:gocritic
+	if filter.DeletedAt != nil {
+		stmt = stmt.Where("repo_deleted = ?", filter.DeletedAt)
+	} else if filter.DeletedBeforeOrAt != nil {
 		stmt = stmt.Where("repo_deleted <= ?", filter.DeletedBeforeOrAt)
 	} else {
 		stmt = stmt.Where("repo_deleted IS NULL")

@@ -17,6 +17,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/harness/gitness/types"
@@ -146,6 +147,9 @@ type (
 
 		// DeletePrimarySegment deletes the primary segment of a space.
 		DeletePrimarySegment(ctx context.Context, spaceID int64) error
+
+		// DeletePathsAndDescendandPaths deletes all space paths reachable from spaceID including itself.
+		DeletePathsAndDescendandPaths(ctx context.Context, spaceID int64) error
 	}
 
 	// SpaceStore defines the space data storage.
@@ -155,6 +159,9 @@ type (
 
 		// FindByRef finds the space using the spaceRef as either the id or the space path.
 		FindByRef(ctx context.Context, spaceRef string) (*types.Space, error)
+
+		// FindByRefAndDeletedAt finds the space using the spaceRef and deleted timestamp.
+		FindByRefAndDeletedAt(ctx context.Context, spaceRef string, deletedAt int64) (*types.Space, error)
 
 		// GetRootSpace returns a space where space_parent_id is NULL.
 		GetRootSpace(ctx context.Context, spaceID int64) (*types.Space, error)
@@ -169,8 +176,18 @@ type (
 		UpdateOptLock(ctx context.Context, space *types.Space,
 			mutateFn func(space *types.Space) error) (*types.Space, error)
 
-		// Delete deletes the space.
-		Delete(ctx context.Context, id int64) error
+		// FindForUpdate finds the space and locks it for an update.
+		FindForUpdate(ctx context.Context, id int64) (*types.Space, error)
+
+		// SoftDelete deletes the space.
+		SoftDelete(ctx context.Context, space *types.Space, deletedAt int64) error
+
+		// Purge deletes a space permanently.
+		Purge(ctx context.Context, id int64, deletedAt *int64) error
+
+		// Restore restores a soft deleted space.
+		Restore(ctx context.Context, space *types.Space,
+			newIdentifier *string, newParentID *int64) (*types.Space, error)
 
 		// Count the child spaces of a space.
 		Count(ctx context.Context, id int64, opts *types.SpaceFilter) (int64, error)
@@ -196,8 +213,8 @@ type (
 		// Update the repo details.
 		Update(ctx context.Context, repo *types.Repository) error
 
-		// Update the repo size.
-		UpdateSize(ctx context.Context, id int64, repoSize int64) error
+		// UpdateSize updates the size of a specific repository in the database (size is in KiB).
+		UpdateSize(ctx context.Context, id int64, sizeInKiB int64) error
 
 		// Get the repo size.
 		GetSize(ctx context.Context, id int64) (int64, error)
@@ -214,7 +231,7 @@ type (
 
 		// Restore a deleted repo using the optimistic locking mechanism.
 		Restore(ctx context.Context, repo *types.Repository,
-			newIdentifier string) (*types.Repository, error)
+			newIdentifier *string, newParentID *int64) (*types.Repository, error)
 
 		// Count of active repos in a space. With "DeletedBeforeOrAt" filter, counts deleted repos.
 		Count(ctx context.Context, parentID int64, opts *types.RepoFilter) (int64, error)
@@ -224,6 +241,35 @@ type (
 
 		// ListSizeInfos returns a list of all active repo sizes.
 		ListSizeInfos(ctx context.Context) ([]*types.RepositorySizeInfo, error)
+	}
+
+	// SettingsStore defines the settings storage.
+	SettingsStore interface {
+		// Find returns the value of the setting with the given key for the provided scope.
+		Find(
+			ctx context.Context,
+			scope enum.SettingsScope,
+			scopeID int64,
+			key string,
+		) (json.RawMessage, error)
+
+		// FindMany returns the values of the settings with the given keys for the provided scope.
+		// NOTE: if a setting key doesn't exist the map just won't contain an entry for it (no error returned).
+		FindMany(
+			ctx context.Context,
+			scope enum.SettingsScope,
+			scopeID int64,
+			keys ...string,
+		) (map[string]json.RawMessage, error)
+
+		// Upsert upserts the value of the setting with the given key for the provided scope.
+		Upsert(
+			ctx context.Context,
+			scope enum.SettingsScope,
+			scopeID int64,
+			key string,
+			value json.RawMessage,
+		) error
 	}
 
 	// RepoGitInfoView defines the repository GitUID view.
@@ -295,8 +341,9 @@ type (
 		// It will set new values to the ActivitySeq, Version and Updated fields.
 		UpdateActivitySeq(ctx context.Context, pr *types.PullReq) (*types.PullReq, error)
 
-		// Update all PR where target branch points to new SHA
-		UpdateMergeCheckStatus(ctx context.Context, targetRepo int64, targetBranch string, status enum.MergeCheckStatus) error
+		// ResetMergeCheckStatus resets the pull request's mergeability status to unchecked
+		// for all prs with target branch pointing to targetBranch.
+		ResetMergeCheckStatus(ctx context.Context, targetRepo int64, targetBranch string) error
 
 		// Delete the pull request.
 		Delete(ctx context.Context, id int64) error

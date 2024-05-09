@@ -17,6 +17,7 @@ package pullreq
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	apiauth "github.com/harness/gitness/app/api/auth"
@@ -31,15 +32,19 @@ import (
 	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git"
 	gitenum "github.com/harness/gitness/git/enum"
+	"github.com/harness/gitness/git/sha"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
+	"github.com/gotidy/ptr"
 	"github.com/rs/zerolog/log"
 )
 
 type MergeInput struct {
 	Method      enum.MergeMethod `json:"method"`
 	SourceSHA   string           `json:"source_sha"`
+	Title       string           `json:"title"`
+	Message     string           `json:"message"`
 	BypassRules bool             `json:"bypass_rules"`
 	DryRun      bool             `json:"dry_run"`
 }
@@ -60,6 +65,14 @@ func (in *MergeInput) sanitize() error {
 		}
 
 		in.Method = method
+	}
+
+	// cleanup title / message (NOTE: git doesn't support white space only)
+	in.Title = strings.TrimSpace(in.Title)
+	in.Message = strings.TrimSpace(in.Message)
+
+	if in.Method == enum.MergeMethodRebase && (in.Title != "" || in.Message != "") {
+		return usererror.BadRequest("rebase doesn't support customizing commit title and message")
 	}
 
 	return nil
@@ -104,7 +117,7 @@ func (c *Controller) Merge(
 	// first one and second one will wait, when first one is done then second one
 	// continue with latest data from db with state merged and return error that
 	// pr is already merged.
-	unlock, err := c.lockPR(
+	unlock, err := c.locker.LockPR(
 		ctx,
 		targetRepo.ID,
 		0,                      // 0 means locks all PRs for this repo
@@ -224,27 +237,27 @@ func (c *Controller) Merge(
 				HeadRepoUID:     sourceRepo.GitUID,
 				HeadBranch:      pr.SourceBranch,
 				RefType:         gitenum.RefTypeUndefined, // update no refs -> no commit will be created
-				HeadExpectedSHA: in.SourceSHA,
+				HeadExpectedSHA: sha.Must(in.SourceSHA),
 			})
 			if err != nil {
 				return nil, nil, fmt.Errorf("merge check execution failed: %w", err)
 			}
 
 			pr, err = c.pullreqStore.UpdateOptLock(ctx, pr, func(pr *types.PullReq) error {
-				if pr.SourceSHA != mergeOutput.HeadSHA {
+				if pr.SourceSHA != mergeOutput.HeadSHA.String() {
 					return errors.New("source SHA has changed")
 				}
 				if len(mergeOutput.ConflictFiles) > 0 {
 					pr.MergeCheckStatus = enum.MergeCheckStatusConflict
-					pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
-					pr.MergeTargetSHA = &mergeOutput.BaseSHA
+					pr.MergeBaseSHA = mergeOutput.MergeBaseSHA.String()
+					pr.MergeTargetSHA = ptr.String(mergeOutput.BaseSHA.String())
 					pr.MergeSHA = nil
 					pr.MergeConflicts = mergeOutput.ConflictFiles
 				} else {
 					pr.MergeCheckStatus = enum.MergeCheckStatusMergeable
-					pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
-					pr.MergeTargetSHA = &mergeOutput.BaseSHA
-					pr.MergeSHA = &mergeOutput.MergeSHA
+					pr.MergeBaseSHA = mergeOutput.MergeBaseSHA.String()
+					pr.MergeTargetSHA = ptr.String(mergeOutput.BaseSHA.String())
+					pr.MergeSHA = nil // dry-run doesn't create a merge commit so output is empty.
 					pr.MergeConflicts = nil
 				}
 				pr.Stats.DiffStats = types.NewDiffStats(mergeOutput.CommitCount, mergeOutput.ChangedFileCount)
@@ -266,13 +279,15 @@ func (c *Controller) Merge(
 			RuleViolations: violations,
 
 			// values only retured by dry run
-			DryRun:                        true,
-			ConflictFiles:                 pr.MergeConflicts,
-			AllowedMethods:                ruleOut.AllowedMethods,
-			RequiresCodeOwnersApproval:    ruleOut.RequiresCodeOwnersApproval,
-			RequiresCommentResolution:     ruleOut.RequiresCommentResolution,
-			RequiresNoChangeRequests:      ruleOut.RequiresNoChangeRequests,
-			MinimumRequiredApprovalsCount: ruleOut.MinimumRequiredApprovalsCount,
+			DryRun:                              true,
+			ConflictFiles:                       pr.MergeConflicts,
+			AllowedMethods:                      ruleOut.AllowedMethods,
+			RequiresCodeOwnersApproval:          ruleOut.RequiresCodeOwnersApproval,
+			RequiresCodeOwnersApprovalLatest:    ruleOut.RequiresCodeOwnersApprovalLatest,
+			RequiresCommentResolution:           ruleOut.RequiresCommentResolution,
+			RequiresNoChangeRequests:            ruleOut.RequiresNoChangeRequests,
+			MinimumRequiredApprovalsCount:       ruleOut.MinimumRequiredApprovalsCount,
+			MinimumRequiredApprovalsCountLatest: ruleOut.MinimumRequiredApprovalsCountLatest,
 		}
 
 		return out, nil, nil
@@ -304,15 +319,16 @@ func (c *Controller) Merge(
 		committer = identityFromPrincipalInfo(*session.Principal.ToPrincipalInfo())
 	}
 
-	var mergeTitle string
-
-	switch in.Method {
-	case enum.MergeMethodMerge:
-		mergeTitle = fmt.Sprintf("Merge branch '%s' of %s (#%d)", pr.SourceBranch, sourceRepo.Path, pr.Number)
-	case enum.MergeMethodSquash:
-		mergeTitle = fmt.Sprintf("%s (#%d)", pr.Title, pr.Number)
-	case enum.MergeMethodRebase:
-		mergeTitle = "" // Not used.
+	// backfill commit title if none provided
+	if in.Title == "" {
+		switch in.Method {
+		case enum.MergeMethodMerge:
+			in.Title = fmt.Sprintf("Merge branch '%s' of %s (#%d)", pr.SourceBranch, sourceRepo.Path, pr.Number)
+		case enum.MergeMethodSquash:
+			in.Title = fmt.Sprintf("%s (#%d)", pr.Title, pr.Number)
+		case enum.MergeMethodRebase:
+			// Not used.
+		}
 	}
 
 	// create merge commit(s)
@@ -325,31 +341,31 @@ func (c *Controller) Merge(
 		BaseBranch:      pr.TargetBranch,
 		HeadRepoUID:     sourceRepo.GitUID,
 		HeadBranch:      pr.SourceBranch,
-		Title:           mergeTitle,
-		Message:         "",
+		Title:           in.Title,
+		Message:         in.Message,
 		Committer:       committer,
 		CommitterDate:   &now,
 		Author:          author,
 		AuthorDate:      &now,
 		RefType:         gitenum.RefTypeBranch,
 		RefName:         pr.TargetBranch,
-		HeadExpectedSHA: in.SourceSHA,
+		HeadExpectedSHA: sha.Must(in.SourceSHA),
 		Method:          gitenum.MergeMethod(in.Method),
 	})
 	if err != nil {
 		return nil, nil, fmt.Errorf("merge check execution failed: %w", err)
 	}
 	//nolint:nestif
-	if mergeOutput.MergeSHA == "" || len(mergeOutput.ConflictFiles) > 0 {
+	if mergeOutput.MergeSHA.String() == "" || len(mergeOutput.ConflictFiles) > 0 {
 		_, err = c.pullreqStore.UpdateOptLock(ctx, pr, func(pr *types.PullReq) error {
-			if pr.SourceSHA != mergeOutput.HeadSHA {
+			if pr.SourceSHA != mergeOutput.HeadSHA.String() {
 				return errors.New("source SHA has changed")
 			}
 
 			// update all Merge specific information
 			pr.MergeCheckStatus = enum.MergeCheckStatusConflict
-			pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
-			pr.MergeTargetSHA = &mergeOutput.BaseSHA
+			pr.MergeBaseSHA = mergeOutput.MergeBaseSHA.String()
+			pr.MergeTargetSHA = ptr.String(mergeOutput.BaseSHA.String())
 			pr.MergeSHA = nil
 			pr.MergeConflicts = mergeOutput.ConflictFiles
 			pr.Stats.DiffStats = types.NewDiffStats(mergeOutput.CommitCount, mergeOutput.ChangedFileCount)
@@ -384,10 +400,10 @@ func (c *Controller) Merge(
 		// update all Merge specific information (might be empty if previous merge check failed)
 		// since this is the final operation on the PR, we update any sha that might've changed by now.
 		pr.MergeCheckStatus = enum.MergeCheckStatusMergeable
-		pr.SourceSHA = mergeOutput.HeadSHA
-		pr.MergeTargetSHA = &mergeOutput.BaseSHA
-		pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
-		pr.MergeSHA = &mergeOutput.MergeSHA
+		pr.SourceSHA = mergeOutput.HeadSHA.String()
+		pr.MergeTargetSHA = ptr.String(mergeOutput.BaseSHA.String())
+		pr.MergeBaseSHA = mergeOutput.MergeBaseSHA.String()
+		pr.MergeSHA = ptr.String(mergeOutput.MergeSHA.String())
 		pr.MergeConflicts = nil
 		pr.Stats.DiffStats = types.NewDiffStats(mergeOutput.CommitCount, mergeOutput.ChangedFileCount)
 
@@ -408,10 +424,11 @@ func (c *Controller) Merge(
 
 	pr.ActivitySeq = activitySeqMerge
 	activityPayload := &types.PullRequestActivityPayloadMerge{
-		MergeMethod: in.Method,
-		MergeSHA:    mergeOutput.MergeSHA,
-		TargetSHA:   mergeOutput.BaseSHA,
-		SourceSHA:   mergeOutput.HeadSHA,
+		MergeMethod:   in.Method,
+		MergeSHA:      mergeOutput.MergeSHA.String(),
+		TargetSHA:     mergeOutput.BaseSHA.String(),
+		SourceSHA:     mergeOutput.HeadSHA.String(),
+		RulesBypassed: protection.IsBypassed(violations),
 	}
 	if _, errAct := c.activityStore.CreateWithPayload(ctx, pr, session.Principal.ID, activityPayload); errAct != nil {
 		// non-critical error
@@ -421,9 +438,9 @@ func (c *Controller) Merge(
 	c.eventReporter.Merged(ctx, &pullreqevents.MergedPayload{
 		Base:        eventBase(pr, &session.Principal),
 		MergeMethod: in.Method,
-		MergeSHA:    mergeOutput.MergeSHA,
-		TargetSHA:   mergeOutput.BaseSHA,
-		SourceSHA:   mergeOutput.HeadSHA,
+		MergeSHA:    mergeOutput.MergeSHA.String(),
+		TargetSHA:   mergeOutput.BaseSHA.String(),
+		SourceSHA:   mergeOutput.HeadSHA.String(),
 	})
 
 	var branchDeleted bool
@@ -455,7 +472,7 @@ func (c *Controller) Merge(
 	}
 
 	return &types.MergeResponse{
-		SHA:            mergeOutput.MergeSHA,
+		SHA:            mergeOutput.MergeSHA.String(),
 		BranchDeleted:  branchDeleted,
 		RuleViolations: violations,
 	}, nil, nil

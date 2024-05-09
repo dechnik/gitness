@@ -15,7 +15,7 @@
  */
 
 import React, { useMemo } from 'react'
-import { Container, Layout, Button, FlexExpander, ButtonVariation, Text } from '@harnessio/uicore'
+import { Container, Layout, Button, FlexExpander, ButtonVariation, Text, ButtonSize } from '@harnessio/uicore'
 import cx from 'classnames'
 import { Icon } from '@harnessio/icons'
 import { Color } from '@harnessio/design-system'
@@ -33,6 +33,7 @@ import { useGetSpaceParam } from 'hooks/useGetSpaceParam'
 import { permissionProps } from 'utils/Utils'
 import CodeSearch from 'components/CodeSearch/CodeSearch'
 import { useDocumentTitle } from 'hooks/useDocumentTitle'
+import { CopyButton } from 'components/CopyButton/CopyButton'
 import css from './ContentHeader.module.scss'
 
 export function ContentHeader({
@@ -52,7 +53,8 @@ export function ContentHeader({
   const permPushResult = hooks?.usePermissionTranslate?.(
     {
       resource: {
-        resourceType: 'CODE_REPOSITORY'
+        resourceType: 'CODE_REPOSITORY',
+        resourceIdentifier: repoMetadata?.uid as string
       },
       permissions: ['code_repo_push']
     },
@@ -101,7 +103,7 @@ export function ContentHeader({
           }}
           onCreateBranch={openCreateNewBranchModal}
         />
-        <Container style={{ maxWidth: 'calc(100vw - 800px)' }}>
+        <Container style={{ maxWidth: 'calc(var(--page-container-width) - 450px)' }}>
           <Layout.Horizontal spacing="small">
             <Link
               id="repository-ref-root"
@@ -122,6 +124,7 @@ export function ContentHeader({
                 )
               }}
             />
+            {resourcePath && <CopyButton content={resourcePath} icon={CodeIcon.Copy} size={ButtonSize.MEDIUM} />}
           </Layout.Horizontal>
         </Container>
         <FlexExpander />

@@ -33,7 +33,7 @@ import {
 import { Color, FontVariation } from '@harnessio/design-system'
 import { PopoverPosition } from '@blueprintjs/core'
 import cx from 'classnames'
-import { useHistory } from 'react-router-dom'
+import { useHistory, useParams } from 'react-router-dom'
 import { useGet, useMutate } from 'restful-react'
 import { useAppContext } from 'AppContext'
 import { useGetRepositoryMetadata } from 'hooks/useGetRepositoryMetadata'
@@ -59,6 +59,8 @@ import Config from 'Config'
 import { usePageIndex } from 'hooks/usePageIndex'
 import { TabContentWrapper } from 'components/TabContentWrapper/TabContentWrapper'
 import { useSetPageContainerWidthVar } from 'hooks/useSetPageContainerWidthVar'
+import type { Identifier } from 'utils/types'
+import EnableAidaBanner from 'components/Aida/EnableAidaBanner'
 import { CompareContentHeader, PRCreationType } from './CompareContentHeader/CompareContentHeader'
 import { CompareCommits } from './CompareCommits'
 import css from './Compare.module.scss'
@@ -66,7 +68,11 @@ import css from './Compare.module.scss'
 export default function Compare() {
   const { routes, standalone, hooks, routingId } = useAppContext()
   const [flag, setFlag] = useState(false)
-  const { SEMANTIC_SEARCH_ENABLED: isSemanticSearchFFEnabled } = hooks?.useFeatureFlags()
+  const { orgIdentifier, projectIdentifier } = useParams<Identifier>()
+  const { data: aidaSettingResponse, loading: isAidaSettingLoading } = hooks?.useGetSettingValue({
+    identifier: 'aida',
+    queryParams: { accountIdentifier: routingId, orgIdentifier, projectIdentifier }
+  })
   const { getString } = useStrings()
   const history = useHistory()
   const { repoMetadata, error, loading, diffRefs } = useGetRepositoryMetadata()
@@ -304,13 +310,20 @@ export default function Compare() {
                               outlets={{
                                 [CommentBoxOutletPosition.START_OF_MARKDOWN_EDITOR_TOOLBAR]: (
                                   <>
-                                    {isSemanticSearchFFEnabled && !standalone ? (
+                                    {!isAidaSettingLoading &&
+                                    aidaSettingResponse?.data?.value == 'true' &&
+                                    !standalone ? (
                                       <Button
                                         size={ButtonSize.SMALL}
                                         variation={ButtonVariation.ICON}
                                         icon={'harness-copilot'}
                                         withoutCurrentColor
-                                        iconProps={{ color: Color.AI_PURPLE_800, size: 16 }}
+                                        iconProps={{
+                                          color: Color.GREY_0,
+                                          size: 22,
+                                          className: css.aidaIcon
+                                        }}
+                                        className={css.aidaIcon}
                                         onClick={handleCopilotClick}
                                         tooltip={
                                           <Container padding={'small'} width={270}>
@@ -330,7 +343,8 @@ export default function Compare() {
                                       />
                                     ) : null}
                                   </>
-                                )
+                                ),
+                                [CommentBoxOutletPosition.ENABLE_AIDA_PR_DESC_BANNER]: <EnableAidaBanner />
                               }}
                             />
                           </Layout.Vertical>
@@ -370,6 +384,7 @@ export default function Compare() {
                   panel: (
                     <TabContentWrapper loading={loading} error={error} onRetry={noop} className={css.changesContainer}>
                       <Changes
+                        showCommitsDropdown={false}
                         readOnly={true}
                         repoMetadata={repoMetadata}
                         targetRef={targetGitRef}

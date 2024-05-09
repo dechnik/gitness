@@ -150,9 +150,9 @@ func QueryParamAsPositiveInt64OrDefault(r *http.Request, paramName string, deflt
 	return valueInt, nil
 }
 
-// QueryParamAsPositiveInt64 extracts an integer parameter from the request query.
+// QueryParamAsPositiveInt64OrError extracts an integer parameter from the request query.
 // If the parameter doesn't exist an error is returned.
-func QueryParamAsPositiveInt64(r *http.Request, paramName string) (int64, error) {
+func QueryParamAsPositiveInt64OrError(r *http.Request, paramName string) (int64, error) {
 	value, err := QueryParamOrError(r, paramName)
 	if err != nil {
 		return 0, err
@@ -164,6 +164,21 @@ func QueryParamAsPositiveInt64(r *http.Request, paramName string) (int64, error)
 	}
 
 	return valueInt, nil
+}
+
+// QueryParamAsPositiveInt64 extracts an integer parameter from the request query if it exists.
+func QueryParamAsPositiveInt64(r *http.Request, paramName string) (int64, bool, error) {
+	value, ok := QueryParam(r, paramName)
+	if !ok {
+		return 0, false, nil
+	}
+
+	valueInt, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || valueInt <= 0 {
+		return 0, false, usererror.BadRequestf("Parameter '%s' must be a positive integer.", paramName)
+	}
+
+	return valueInt, true, nil
 }
 
 // PathParamAsPositiveInt64 extracts an integer parameter from the request path.
@@ -194,4 +209,22 @@ func QueryParamAsBoolOrDefault(r *http.Request, paramName string, deflt bool) (b
 	}
 
 	return boolValue, nil
+}
+
+// QueryParamListAsPositiveInt64 extracts integer parameter slice from the request query.
+func QueryParamListAsPositiveInt64(r *http.Request, paramName string) ([]int64, error) {
+	valuesString, ok := QueryParamList(r, paramName)
+	if !ok {
+		return make([]int64, 0), nil
+	}
+	valuesInt := make([]int64, len(valuesString))
+
+	for i, vs := range valuesString {
+		vi, err := strconv.ParseInt(vs, 10, 64)
+		if err != nil || vi <= 0 {
+			return nil, usererror.BadRequestf("Parameter %q must be a positive integer.", paramName)
+		}
+		valuesInt[i] = vi
+	}
+	return valuesInt, nil
 }

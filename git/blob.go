@@ -17,6 +17,9 @@ package git
 import (
 	"context"
 	"io"
+
+	"github.com/harness/gitness/git/api"
+	"github.com/harness/gitness/git/sha"
 )
 
 type GetBlobParams struct {
@@ -26,7 +29,7 @@ type GetBlobParams struct {
 }
 
 type GetBlobOutput struct {
-	SHA string
+	SHA sha.SHA
 	// Size is the actual size of the blob.
 	Size int64
 	// ContentSize is the total number of bytes returned by the Content Reader.
@@ -43,7 +46,13 @@ func (s *Service) GetBlob(ctx context.Context, params *GetBlobParams) (*GetBlobO
 	repoPath := getFullPathForRepo(s.reposRoot, params.RepoUID)
 
 	// TODO: do we need to validate request for nil?
-	reader, err := s.adapter.GetBlob(ctx, repoPath, params.SHA, params.SizeLimit)
+	reader, err := api.GetBlob(
+		ctx,
+		repoPath,
+		params.AlternateObjectDirs,
+		sha.Must(params.SHA),
+		params.SizeLimit,
+	)
 	if err != nil {
 		return nil, err
 	}

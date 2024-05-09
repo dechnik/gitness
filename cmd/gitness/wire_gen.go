@@ -12,6 +12,7 @@ import (
 	check2 "github.com/harness/gitness/app/api/controller/check"
 	"github.com/harness/gitness/app/api/controller/connector"
 	"github.com/harness/gitness/app/api/controller/execution"
+	"github.com/harness/gitness/app/api/controller/githook"
 	keywordsearch2 "github.com/harness/gitness/app/api/controller/keywordsearch"
 	"github.com/harness/gitness/app/api/controller/limiter"
 	logs2 "github.com/harness/gitness/app/api/controller/logs"
@@ -20,6 +21,7 @@ import (
 	"github.com/harness/gitness/app/api/controller/principal"
 	pullreq2 "github.com/harness/gitness/app/api/controller/pullreq"
 	"github.com/harness/gitness/app/api/controller/repo"
+	"github.com/harness/gitness/app/api/controller/reposettings"
 	"github.com/harness/gitness/app/api/controller/secret"
 	"github.com/harness/gitness/app/api/controller/service"
 	"github.com/harness/gitness/app/api/controller/serviceaccount"
@@ -37,7 +39,6 @@ import (
 	events4 "github.com/harness/gitness/app/events/git"
 	events3 "github.com/harness/gitness/app/events/pullreq"
 	events2 "github.com/harness/gitness/app/events/repo"
-	"github.com/harness/gitness/app/githook"
 	"github.com/harness/gitness/app/pipeline/canceler"
 	"github.com/harness/gitness/app/pipeline/commit"
 	"github.com/harness/gitness/app/pipeline/converter"
@@ -56,12 +57,14 @@ import (
 	"github.com/harness/gitness/app/services/exporter"
 	"github.com/harness/gitness/app/services/importer"
 	"github.com/harness/gitness/app/services/keywordsearch"
+	"github.com/harness/gitness/app/services/locker"
 	"github.com/harness/gitness/app/services/metric"
 	"github.com/harness/gitness/app/services/notification"
 	"github.com/harness/gitness/app/services/notification/mailer"
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/app/services/pullreq"
-	"github.com/harness/gitness/app/services/reposize"
+	repo2 "github.com/harness/gitness/app/services/repo"
+	"github.com/harness/gitness/app/services/settings"
 	trigger2 "github.com/harness/gitness/app/services/trigger"
 	"github.com/harness/gitness/app/services/usergroup"
 	"github.com/harness/gitness/app/services/webhook"
@@ -71,12 +74,13 @@ import (
 	"github.com/harness/gitness/app/store/database"
 	"github.com/harness/gitness/app/store/logs"
 	"github.com/harness/gitness/app/url"
+	"github.com/harness/gitness/audit"
 	"github.com/harness/gitness/blob"
 	"github.com/harness/gitness/cli/operations/server"
 	"github.com/harness/gitness/encrypt"
 	"github.com/harness/gitness/events"
 	"github.com/harness/gitness/git"
-	"github.com/harness/gitness/git/adapter"
+	"github.com/harness/gitness/git/api"
 	"github.com/harness/gitness/git/storage"
 	"github.com/harness/gitness/job"
 	"github.com/harness/gitness/livelog"
@@ -108,7 +112,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	spaceStore := database.ProvideSpaceStore(db, spacePathCache, spacePathStore)
 	principalInfoView := database.ProvidePrincipalInfoView(db)
 	principalInfoCache := cache.ProvidePrincipalInfoCache(principalInfoView)
-	membershipStore := database.ProvideMembershipStore(db, principalInfoCache, spacePathStore)
+	membershipStore := database.ProvideMembershipStore(db, principalInfoCache, spacePathStore, spaceStore)
 	permissionCache := authz.ProvidePermissionCache(spaceStore, membershipStore)
 	authorizer := authz.ProvideAuthorizer(permissionCache, spaceStore)
 	principalUIDTransformation := store.ProvidePrincipalUIDTransformation()
@@ -122,9 +126,11 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	repoStore := database.ProvideRepoStore(db, spacePathCache, spacePathStore)
+	repoStore := database.ProvideRepoStore(db, spacePathCache, spacePathStore, spaceStore)
 	pipelineStore := database.ProvidePipelineStore(db)
 	ruleStore := database.ProvideRuleStore(db, principalInfoCache)
+	settingsStore := database.ProvideSettingsStore(db)
+	settingsService := settings.ProvideService(settingsStore)
 	protectionManager, err := protection.ProvideManager(ruleStore)
 	if err != nil {
 		return nil, err
@@ -134,17 +140,17 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	cacheCache, err := adapter.ProvideLastCommitCache(typesConfig, universalClient)
+	cacheCache, err := api.ProvideLastCommitCache(typesConfig, universalClient)
 	if err != nil {
 		return nil, err
 	}
 	clientFactory := githook.ProvideFactory()
-	gitAdapter, err := git.ProvideGITAdapter(typesConfig, cacheCache, clientFactory)
+	apiGit, err := git.ProvideGITAdapter(typesConfig, cacheCache, clientFactory)
 	if err != nil {
 		return nil, err
 	}
 	storageStore := storage.ProvideLocalStore()
-	gitInterface, err := git.ProvideService(typesConfig, gitAdapter, storageStore)
+	gitInterface, err := git.ProvideService(typesConfig, apiGit, clientFactory, storageStore)
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +193,12 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	repoController := repo.ProvideController(config, transactor, provider, authorizer, repoStore, spaceStore, pipelineStore, principalStore, ruleStore, principalInfoCache, protectionManager, gitInterface, repository, codeownersService, reporter, indexer, resourceLimiter, mutexManager)
+	lockerLocker := locker.ProvideLocker(mutexManager)
+	auditService := audit.ProvideAuditService()
+	repoIdentifier := check.ProvideRepoIdentifierCheck()
+	repoCheck := repo.ProvideRepoCheck()
+	repoController := repo.ProvideController(config, transactor, provider, authorizer, repoStore, spaceStore, pipelineStore, principalStore, ruleStore, settingsService, principalInfoCache, protectionManager, gitInterface, repository, codeownersService, reporter, indexer, resourceLimiter, lockerLocker, auditService, mutexManager, repoIdentifier, repoCheck)
+	reposettingsController := reposettings.ProvideController(authorizer, repoStore, settingsService, auditService)
 	executionStore := database.ProvideExecutionStore(db)
 	checkStore := database.ProvideCheckStore(db, principalInfoCache)
 	stageStore := database.ProvideStageStore(db)
@@ -214,7 +225,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	spaceController := space.ProvideController(config, transactor, provider, streamer, spaceIdentifier, authorizer, spacePathStore, pipelineStore, secretStore, connectorStore, templateStore, spaceStore, repoStore, principalStore, repoController, membershipStore, repository, exporterRepository, resourceLimiter)
+	spaceController := space.ProvideController(config, transactor, provider, streamer, spaceIdentifier, authorizer, spacePathStore, pipelineStore, secretStore, connectorStore, templateStore, spaceStore, repoStore, principalStore, repoController, membershipStore, repository, exporterRepository, resourceLimiter, auditService)
 	pipelineController := pipeline.ProvideController(repoStore, triggerStore, authorizer, pipelineStore)
 	secretController := secret.ProvideController(encrypter, secretStore, authorizer, spaceStore)
 	triggerController := trigger.ProvideController(authorizer, triggerStore, pipelineStore, repoStore)
@@ -246,7 +257,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	pullreqController := pullreq2.ProvideController(transactor, provider, authorizer, pullReqStore, pullReqActivityStore, codeCommentView, pullReqReviewStore, pullReqReviewerStore, repoStore, principalStore, pullReqFileViewStore, membershipStore, checkStore, gitInterface, eventsReporter, mutexManager, migrator, pullreqService, protectionManager, streamer, codeownersService)
+	pullreqController := pullreq2.ProvideController(transactor, provider, authorizer, pullReqStore, pullReqActivityStore, codeCommentView, pullReqReviewStore, pullReqReviewerStore, repoStore, principalStore, pullReqFileViewStore, membershipStore, checkStore, gitInterface, eventsReporter, migrator, pullreqService, protectionManager, streamer, codeownersService, lockerLocker)
 	webhookConfig := server.ProvideWebhookConfig(config)
 	webhookStore := database.ProvideWebhookStore(db)
 	webhookExecutionStore := database.ProvideWebhookExecutionStore(db)
@@ -259,7 +270,19 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	githookController := githook.ProvideController(authorizer, principalStore, repoStore, reporter2, gitInterface, pullReqStore, provider, protectionManager, clientFactory, resourceLimiter)
+	preReceiveExtender, err := githook.ProvidePreReceiveExtender()
+	if err != nil {
+		return nil, err
+	}
+	updateExtender, err := githook.ProvideUpdateExtender()
+	if err != nil {
+		return nil, err
+	}
+	postReceiveExtender, err := githook.ProvidePostReceiveExtender()
+	if err != nil {
+		return nil, err
+	}
+	githookController := githook.ProvideController(authorizer, principalStore, repoStore, reporter2, reporter, gitInterface, pullReqStore, provider, protectionManager, clientFactory, resourceLimiter, settingsService, preReceiveExtender, updateExtender, postReceiveExtender)
 	serviceaccountController := serviceaccount.NewController(principalUID, authorizer, principalStore, spaceStore, repoStore, tokenStore)
 	principalController := principal.ProvideController(principalStore)
 	v := check2.ProvideCheckSanitizers()
@@ -276,7 +299,7 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	uploadController := upload.ProvideController(authorizer, repoStore, blobStore)
 	searcher := keywordsearch.ProvideSearcher(localIndexSearcher)
 	keywordsearchController := keywordsearch2.ProvideController(authorizer, searcher, repoController, spaceController)
-	apiHandler := router.ProvideAPIHandler(ctx, config, authenticator, repoController, executionController, logsController, spaceController, pipelineController, secretController, triggerController, connectorController, templateController, pluginController, pullreqController, webhookController, githookController, serviceaccountController, controller, principalController, checkController, systemController, uploadController, keywordsearchController)
+	apiHandler := router.ProvideAPIHandler(ctx, config, authenticator, repoController, reposettingsController, executionController, logsController, spaceController, pipelineController, secretController, triggerController, connectorController, templateController, pluginController, pullreqController, webhookController, githookController, gitInterface, serviceaccountController, controller, principalController, checkController, systemController, uploadController, keywordsearchController)
 	gitHandler := router.ProvideGitHandler(provider, authenticator, repoController)
 	openapiService := openapi.ProvideOpenAPIService()
 	webHandler := router.ProvideWebHandler(config, openapiService)
@@ -299,7 +322,15 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 	if err != nil {
 		return nil, err
 	}
-	calculator, err := reposize.ProvideCalculator(config, gitInterface, repoStore, jobScheduler, executor)
+	sizeCalculator, err := repo2.ProvideCalculator(config, gitInterface, repoStore, jobScheduler, executor)
+	if err != nil {
+		return nil, err
+	}
+	readerFactory2, err := events2.ProvideReaderFactory(eventsSystem)
+	if err != nil {
+		return nil, err
+	}
+	repoService, err := repo2.ProvideService(ctx, config, reporter, readerFactory2, repoStore, provider, gitInterface, lockerLocker)
 	if err != nil {
 		return nil, err
 	}
@@ -316,11 +347,11 @@ func initSystem(ctx context.Context, config *types.Config) (*server.System, erro
 		return nil, err
 	}
 	keywordsearchConfig := server.ProvideKeywordSearchConfig(config)
-	keywordsearchService, err := keywordsearch.ProvideService(ctx, keywordsearchConfig, readerFactory, repoStore, indexer)
+	keywordsearchService, err := keywordsearch.ProvideService(ctx, keywordsearchConfig, readerFactory, readerFactory2, repoStore, indexer)
 	if err != nil {
 		return nil, err
 	}
-	servicesServices := services.ProvideServices(webhookService, pullreqService, triggerService, jobScheduler, collector, calculator, cleanupService, notificationService, keywordsearchService)
+	servicesServices := services.ProvideServices(webhookService, pullreqService, triggerService, jobScheduler, collector, sizeCalculator, repoService, cleanupService, notificationService, keywordsearchService)
 	serverSystem := server.NewSystem(bootstrapBootstrap, serverServer, poller, resolverManager, servicesServices)
 	return serverSystem, nil
 }

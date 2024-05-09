@@ -24,10 +24,11 @@ type PullReq struct {
 	Version int64 `json:"-"` // not returned, it's an internal field
 	Number  int64 `json:"number"`
 
-	CreatedBy int64 `json:"-"` // not returned, because the author info is in the Author field
-	Created   int64 `json:"created"`
-	Updated   int64 `json:"-"` // not returned, it's updated by the server internally. Clients should use EditedAt.
-	Edited    int64 `json:"edited"`
+	CreatedBy int64  `json:"-"` // not returned, because the author info is in the Author field
+	Created   int64  `json:"created"`
+	Updated   int64  `json:"-"` // not returned, it's updated by the server internally. Clients should use EditedAt.
+	Edited    int64  `json:"edited"`
+	Closed    *int64 `json:"closed,omitempty"`
 
 	State   enum.PullReqState `json:"state"`
 	IsDraft bool              `json:"is_draft"`
@@ -53,7 +54,7 @@ type PullReq struct {
 	MergeCheckStatus enum.MergeCheckStatus `json:"merge_check_status"`
 	MergeTargetSHA   *string               `json:"merge_target_sha"`
 	MergeBaseSHA     string                `json:"merge_base_sha"`
-	MergeSHA         *string               `json:"merge_sha"`
+	MergeSHA         *string               `json:"-"` // TODO: either remove or ensure it's being set (merge dry-run)
 	MergeConflicts   []string              `json:"merge_conflicts,omitempty"`
 
 	Author PrincipalInfo  `json:"author"`
@@ -88,7 +89,7 @@ type PullReqFilter struct {
 	Page          int                 `json:"page"`
 	Size          int                 `json:"size"`
 	Query         string              `json:"query"`
-	CreatedBy     int64               `json:"created_by"`
+	CreatedBy     []int64             `json:"created_by"`
 	SourceRepoID  int64               `json:"-"` // caller should use source_repo_ref
 	SourceRepoRef string              `json:"source_repo_ref"`
 	SourceBranch  string              `json:"source_branch"`
@@ -97,6 +98,7 @@ type PullReqFilter struct {
 	States        []enum.PullReqState `json:"state"`
 	Sort          enum.PullReqSort    `json:"sort"`
 	Order         enum.Order          `json:"order"`
+	CreatedFilter
 }
 
 // PullReqReview holds pull request review.
@@ -153,13 +155,15 @@ type MergeResponse struct {
 	RuleViolations []RuleViolations `json:"rule_violations,omitempty"`
 
 	// values only returned on dryrun
-	DryRun                        bool               `json:"dry_run,omitempty"`
-	ConflictFiles                 []string           `json:"conflict_files,omitempty"`
-	AllowedMethods                []enum.MergeMethod `json:"allowed_methods,omitempty"`
-	MinimumRequiredApprovalsCount int                `json:"minimum_required_approvals_count,omitempty"`
-	RequiresCodeOwnersApproval    bool               `json:"requires_code_owners_approval,omitempty"`
-	RequiresCommentResolution     bool               `json:"requires_comment_resolution,omitempty"`
-	RequiresNoChangeRequests      bool               `json:"requires_no_change_requests,omitempty"`
+	DryRun                              bool               `json:"dry_run,omitempty"`
+	ConflictFiles                       []string           `json:"conflict_files,omitempty"`
+	AllowedMethods                      []enum.MergeMethod `json:"allowed_methods,omitempty"`
+	MinimumRequiredApprovalsCount       int                `json:"minimum_required_approvals_count,omitempty"`
+	MinimumRequiredApprovalsCountLatest int                `json:"minimum_required_approvals_count_latest,omitempty"`
+	RequiresCodeOwnersApproval          bool               `json:"requires_code_owners_approval,omitempty"`
+	RequiresCodeOwnersApprovalLatest    bool               `json:"requires_code_owners_approval_latest,omitempty"`
+	RequiresCommentResolution           bool               `json:"requires_comment_resolution,omitempty"`
+	RequiresNoChangeRequests            bool               `json:"requires_no_change_requests,omitempty"`
 }
 
 type MergeViolations struct {

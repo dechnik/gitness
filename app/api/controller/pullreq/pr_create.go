@@ -55,14 +55,14 @@ func (c *Controller) Create(
 
 	targetRepo, err := c.getRepoCheckAccess(ctx, session, repoRef, enum.PermissionRepoPush)
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire access access to target repo: %w", err)
+		return nil, fmt.Errorf("failed to acquire access to target repo: %w", err)
 	}
 
 	sourceRepo := targetRepo
 	if in.SourceRepoRef != "" {
 		sourceRepo, err = c.getRepoCheckAccess(ctx, session, in.SourceRepoRef, enum.PermissionRepoView)
 		if err != nil {
-			return nil, fmt.Errorf("failed to acquire access access to source repo: %w", err)
+			return nil, fmt.Errorf("failed to acquire access to source repo: %w", err)
 		}
 	}
 
@@ -95,7 +95,7 @@ func (c *Controller) Create(
 
 	mergeBaseSHA := mergeBaseResult.MergeBaseSHA
 
-	if mergeBaseSHA == sourceSHA {
+	if mergeBaseSHA.String() == sourceSHA {
 		return nil, usererror.BadRequest("The source branch doesn't contain any new commits")
 	}
 
@@ -107,7 +107,7 @@ func (c *Controller) Create(
 		return nil, fmt.Errorf("failed to acquire PullReqSeq number: %w", err)
 	}
 
-	pr := newPullReq(session, targetRepo.PullReqSeq, sourceRepo, targetRepo, in, sourceSHA, mergeBaseSHA)
+	pr := newPullReq(session, targetRepo.PullReqSeq, sourceRepo, targetRepo, in, sourceSHA, mergeBaseSHA.String())
 
 	err = c.pullreqStore.Create(ctx, pr)
 	if err != nil {

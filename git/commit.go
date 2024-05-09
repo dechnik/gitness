@@ -15,31 +15,32 @@
 package git
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
 
 	"github.com/harness/gitness/errors"
-	"github.com/harness/gitness/git/types"
-
-	"github.com/rs/zerolog/log"
+	"github.com/harness/gitness/git/api"
+	"github.com/harness/gitness/git/command"
+	"github.com/harness/gitness/git/enum"
+	"github.com/harness/gitness/git/parser"
+	"github.com/harness/gitness/git/sha"
 )
 
 type GetCommitParams struct {
 	ReadParams
-	// SHA is the git commit sha
-	SHA string
+	Revision string
 }
 
 type Commit struct {
-	SHA        string          `json:"sha"`
-	ParentSHAs []string        `json:"parent_shas,omitempty"`
-	Title      string          `json:"title"`
-	Message    string          `json:"message,omitempty"`
-	Author     Signature       `json:"author"`
-	Committer  Signature       `json:"committer"`
-	FileStats  CommitFileStats `json:"file_stats,omitempty"`
-	DiffStats  CommitDiffStats `json:"diff_stats,omitempty"`
+	SHA        sha.SHA           `json:"sha"`
+	ParentSHAs []sha.SHA         `json:"parent_shas,omitempty"`
+	Title      string            `json:"title"`
+	Message    string            `json:"message,omitempty"`
+	Author     Signature         `json:"author"`
+	Committer  Signature         `json:"committer"`
+	FileStats  []CommitFileStats `json:"file_stats,omitempty"`
 }
 
 type GetCommitOutput struct {
@@ -72,11 +73,8 @@ func (s *Service) GetCommit(ctx context.Context, params *GetCommitParams) (*GetC
 	if params == nil {
 		return nil, ErrNoParamsProvided
 	}
-	if !isValidGitSHA(params.SHA) {
-		return nil, errors.InvalidArgument("the provided commit sha '%s' is of invalid format.", params.SHA)
-	}
 	repoPath := getFullPathForRepo(s.reposRoot, params.RepoUID)
-	result, err := s.adapter.GetCommit(ctx, repoPath, params.SHA)
+	result, err := s.git.GetCommit(ctx, repoPath, params.Revision)
 	if err != nil {
 		return nil, err
 	}
@@ -111,15 +109,15 @@ type ListCommitsParams struct {
 	// Committer allows to filter for commits based on the committer - Optional, ignored if string is empty.
 	Committer string
 
-	// IncludeFileStats allows you to include information about files changed, added and modified.
-	IncludeFileStats bool
+	// IncludeStats allows to include information about inserted, deletions and status for changed files.
+	IncludeStats bool
 }
 
 type RenameDetails struct {
 	OldPath         string
 	NewPath         string
-	CommitShaBefore string
-	CommitShaAfter  string
+	CommitShaBefore sha.SHA
+	CommitShaAfter  sha.SHA
 }
 
 type ListCommitsOutput struct {
@@ -129,9 +127,11 @@ type ListCommitsOutput struct {
 }
 
 type CommitFileStats struct {
-	Added    []string
-	Modified []string
-	Removed  []string
+	Status     enum.FileDiffStatus
+	Path       string
+	OldPath    string // populated only in case of renames
+	Insertions int64
+	Deletions  int64
 }
 
 func (s *Service) ListCommits(ctx context.Context, params *ListCommitsParams) (*ListCommitsOutput, error) {
@@ -141,14 +141,14 @@ func (s *Service) ListCommits(ctx context.Context, params *ListCommitsParams) (*
 
 	repoPath := getFullPathForRepo(s.reposRoot, params.RepoUID)
 
-	gitCommits, renameDetails, err := s.adapter.ListCommits(
+	gitCommits, renameDetails, err := s.git.ListCommits(
 		ctx,
 		repoPath,
 		params.GitREF,
 		int(params.Page),
 		int(params.Limit),
-		params.IncludeFileStats,
-		types.CommitFilter{
+		params.IncludeStats,
+		api.CommitFilter{
 			AfterRef:  params.After,
 			Path:      params.Path,
 			Since:     params.Since,
@@ -165,7 +165,7 @@ func (s *Service) ListCommits(ctx context.Context, params *ListCommitsParams) (*
 	if params.Page == 1 && len(gitCommits) < int(params.Limit) {
 		totalCommits = len(gitCommits)
 	} else if params.After != "" && params.GitREF != params.After {
-		div, err := s.adapter.GetCommitDivergences(ctx, repoPath, []types.CommitDivergenceRequest{
+		div, err := s.git.GetCommitDivergences(ctx, repoPath, []api.CommitDivergenceRequest{
 			{From: params.GitREF, To: params.After},
 		}, 0)
 		if err != nil {
@@ -178,22 +178,9 @@ func (s *Service) ListCommits(ctx context.Context, params *ListCommitsParams) (*
 
 	commits := make([]Commit, len(gitCommits))
 	for i := range gitCommits {
-		commit, err := mapCommit(&gitCommits[i])
+		commit, err := mapCommit(gitCommits[i])
 		if err != nil {
 			return nil, fmt.Errorf("failed to map rpc commit: %w", err)
-		}
-
-		stat, err := s.CommitShortStat(ctx, &CommitShortStatParams{
-			Path: repoPath,
-			Ref:  commit.SHA,
-		})
-		if err != nil {
-			log.Warn().Msgf("failed to get diff stats: %s", err)
-		}
-		commit.DiffStats = CommitDiffStats{
-			Additions: stat.Additions,
-			Deletions: stat.Deletions,
-			Total:     stat.Additions + stat.Deletions,
 		}
 
 		commits[i] = *commit
@@ -213,7 +200,7 @@ type GetCommitDivergencesParams struct {
 }
 
 type GetCommitDivergencesOutput struct {
-	Divergences []types.CommitDivergence
+	Divergences []api.CommitDivergence
 }
 
 // CommitDivergenceRequest contains the refs for which the converging commits should be counted.
@@ -242,16 +229,15 @@ func (s *Service) GetCommitDivergences(
 
 	repoPath := getFullPathForRepo(s.reposRoot, params.RepoUID)
 
-	requests := make([]types.CommitDivergenceRequest, len(params.Requests))
+	requests := make([]api.CommitDivergenceRequest, len(params.Requests))
 	for i, req := range params.Requests {
-		requests[i] = types.CommitDivergenceRequest{
+		requests[i] = api.CommitDivergenceRequest{
 			From: req.From,
 			To:   req.To,
 		}
 	}
 
-	// call gitea
-	divergences, err := s.adapter.GetCommitDivergences(
+	divergences, err := s.git.GetCommitDivergences(
 		ctx,
 		repoPath,
 		requests,
@@ -264,4 +250,83 @@ func (s *Service) GetCommitDivergences(
 	return &GetCommitDivergencesOutput{
 		Divergences: divergences,
 	}, nil
+}
+
+type FindOversizeFilesParams struct {
+	RepoUID       string
+	GitObjectDirs []string
+	SizeLimit     int64
+}
+
+type FindOversizeFilesOutput struct {
+	FileInfos []FileInfo
+}
+
+type FileInfo struct {
+	SHA  sha.SHA
+	Size int64
+}
+
+//nolint:gocognit
+func (s *Service) FindOversizeFiles(
+	ctx context.Context,
+	params *FindOversizeFilesParams,
+) (*FindOversizeFilesOutput, error) {
+	if params.RepoUID == "" {
+		return nil, api.ErrRepositoryPathEmpty
+	}
+	repoPath := getFullPathForRepo(s.reposRoot, params.RepoUID)
+
+	var fileInfos []FileInfo
+	for _, gitObjDir := range params.GitObjectDirs {
+		objects, err := catFileBatchCheckAllObjects(ctx, repoPath, gitObjDir)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, obj := range objects {
+			if obj.Type == string(TreeNodeTypeBlob) {
+				if obj.Size > params.SizeLimit {
+					fileInfos = append(fileInfos, FileInfo{
+						SHA:  obj.SHA,
+						Size: obj.Size,
+					})
+				}
+			}
+		}
+	}
+
+	return &FindOversizeFilesOutput{
+		FileInfos: fileInfos,
+	}, nil
+}
+
+func catFileBatchCheckAllObjects(
+	ctx context.Context,
+	repoPath string,
+	gitObjDir string,
+) ([]parser.BatchCheckObject, error) {
+	cmd := command.New("cat-file",
+		command.WithFlag("--batch-check"),
+		command.WithFlag("--batch-all-objects"),
+		command.WithFlag("--unordered"),
+		command.WithFlag("-Z"),
+		command.WithEnv(command.GitObjectDir, gitObjDir),
+	)
+	buffer := bytes.NewBuffer(nil)
+	err := cmd.Run(
+		ctx,
+		command.WithDir(repoPath),
+		command.WithStdout(buffer),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to cat-file batch check all objects: %w", err)
+	}
+
+	objects, err := parser.CatFileBatchCheckAllObjects(buffer)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse output of cat-file batch check all objects: %w", err)
+	}
+
+	return objects, nil
 }

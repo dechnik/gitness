@@ -128,7 +128,7 @@ func (c *Controller) Report(
 ) (*types.Check, error) {
 	repo, err := c.getRepoCheckAccess(ctx, session, repoRef, enum.PermissionRepoReportCommitCheck)
 	if err != nil {
-		return nil, fmt.Errorf("failed to acquire access access to repo: %w", err)
+		return nil, fmt.Errorf("failed to acquire access to repo: %w", err)
 	}
 
 	if errValidate := in.Sanitize(c.sanitizers, session); errValidate != nil {
@@ -141,7 +141,7 @@ func (c *Controller) Report(
 
 	_, err = c.git.GetCommit(ctx, &git.GetCommitParams{
 		ReadParams: git.ReadParams{RepoUID: repo.GitUID},
-		SHA:        commitSHA,
+		Revision:   commitSHA,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to commit sha=%s: %w", commitSHA, err)

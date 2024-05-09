@@ -16,6 +16,7 @@ package command
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -39,13 +40,28 @@ func (b builder) supportsEndOfOptions() bool {
 
 // descriptions is a curated list of Git command descriptions.
 var descriptions = map[string]builder{
-	"am": {},
+	"am":  {},
+	"add": {},
 	"apply": {
 		flags: NoRefUpdates,
 	},
 	"archive": {
 		// git-archive(1) does not support disambiguating options from paths from revisions.
 		flags: NoRefUpdates | NoEndOfOptions,
+		validatePositionalArgs: func(args []string) error {
+			for _, arg := range args {
+				if strings.HasPrefix(arg, "-") {
+					// check if the argument is a level of compression
+					if _, err := strconv.Atoi(arg[1:]); err == nil {
+						return nil
+					}
+				}
+				if err := validatePositionalArg(arg); err != nil {
+					return err
+				}
+			}
+			return nil
+		},
 	},
 	"blame": {
 		// git-blame(1) does not support disambiguating options from paths from revisions.
@@ -122,6 +138,9 @@ var descriptions = map[string]builder{
 		flags: NoRefUpdates,
 	},
 	"log": {
+		flags: NoRefUpdates,
+	},
+	"ls-files": {
 		flags: NoRefUpdates,
 	},
 	"ls-remote": {
@@ -226,6 +245,9 @@ var descriptions = map[string]builder{
 	"update-ref": {
 		flags: 0,
 	},
+	"update-index": {
+		flags: NoEndOfOptions,
+	},
 	"upload-archive": {
 		// git-upload-archive(1) has a handrolled parser which always interprets the
 		// first argument as directory, so we cannot use `--end-of-options`.
@@ -240,6 +262,9 @@ var descriptions = map[string]builder{
 	"worktree": {
 		flags: 0,
 	},
+	"write-tree": {
+		flags: 0,
+	},
 }
 
 // args validates the given flags and arguments and, if valid, returns the complete command line.
@@ -248,7 +273,7 @@ func (b builder) args(flags []string, args []string, postSepArgs []string) ([]st
 
 	cmdArgs = append(cmdArgs, flags...)
 
-	if b.supportsEndOfOptions() {
+	if b.supportsEndOfOptions() && len(flags) > 0 {
 		cmdArgs = append(cmdArgs, "--end-of-options")
 	}
 
@@ -265,7 +290,7 @@ func (b builder) args(flags []string, args []string, postSepArgs []string) ([]st
 	}
 	cmdArgs = append(cmdArgs, args...)
 
-	if len(postSepArgs) > 0 {
+	if len(postSepArgs) > 0 && len(cmdArgs) > 0 && cmdArgs[len(cmdArgs)-1] != "--end-of-options" {
 		cmdArgs = append(cmdArgs, "--")
 	}
 

@@ -25,16 +25,17 @@ import (
 	"github.com/harness/gitness/events"
 	"github.com/harness/gitness/git"
 	gitenum "github.com/harness/gitness/git/enum"
+	"github.com/harness/gitness/git/sha"
 	"github.com/harness/gitness/pubsub"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
+	"github.com/gotidy/ptr"
 	"github.com/rs/zerolog/log"
 )
 
 const (
 	cancelMergeCheckKey = "cancel_merge_check_for_sha"
-	nilSHA              = "0000000000000000000000000000000000000000"
 )
 
 // mergeCheckOnCreated handles pull request Created events.
@@ -46,7 +47,7 @@ func (s *Service) mergeCheckOnCreated(ctx context.Context,
 		ctx,
 		event.Payload.TargetRepoID,
 		event.Payload.Number,
-		nilSHA,
+		sha.Nil.String(),
 		event.Payload.SourceSHA,
 	)
 }
@@ -74,7 +75,7 @@ func (s *Service) mergeCheckOnReopen(ctx context.Context,
 		ctx,
 		event.Payload.TargetRepoID,
 		event.Payload.Number,
-		"",
+		sha.None.String(),
 		event.Payload.SourceSHA,
 	)
 }
@@ -109,8 +110,8 @@ func (s *Service) deleteMergeRef(ctx context.Context, repoID int64, prNum int64)
 		WriteParams: writeParams,
 		Name:        strconv.Itoa(int(prNum)),
 		Type:        gitenum.RefTypePullReqMerge,
-		NewValue:    "", // when NewValue is empty will delete the ref.
-		OldValue:    "", // we don't care about the old value
+		NewValue:    sha.None, // when NewValue is empty will delete the ref.
+		OldValue:    sha.None, // we don't care about the old value
 	})
 	if err != nil {
 		return fmt.Errorf("failed to remove PR merge ref: %w", err)
@@ -132,16 +133,6 @@ func (s *Service) updateMergeData(
 		return fmt.Errorf("failed to get pull request number %d: %w", prNum, err)
 	}
 
-	return s.updateMergeDataInner(ctx, pr, oldSHA, newSHA)
-}
-
-//nolint:funlen // refactor if required.
-func (s *Service) updateMergeDataInner(
-	ctx context.Context,
-	pr *types.PullReq,
-	oldSHA string,
-	newSHA string,
-) error {
 	// TODO: Merge check should not update the merge base.
 	// TODO: Instead it should accept it as an argument and fail if it doesn't match.
 	// Then is would not longer be necessary to cancel already active mergeability checks.
@@ -205,15 +196,18 @@ func (s *Service) updateMergeDataInner(
 		HeadBranch:      pr.SourceBranch,
 		RefType:         gitenum.RefTypePullReqMerge,
 		RefName:         strconv.Itoa(int(pr.Number)),
-		HeadExpectedSHA: newSHA,
+		HeadExpectedSHA: sha.Must(newSHA),
 		Force:           true,
 
 		// set committer date to ensure repeatability of merge commit across replicas
 		CommitterDate: &now,
 	})
 	if errors.AsStatus(err) == errors.StatusPreconditionFailed {
-		return events.NewDiscardEventErrorf("Source branch '%s' is not on SHA '%s' anymore.",
+		return events.NewDiscardEventErrorf("Source branch %q is not on SHA %q anymore.",
 			pr.SourceBranch, newSHA)
+	}
+	if err != nil {
+		return fmt.Errorf("failed to run git merge with base %q and head %q: %w", pr.TargetBranch, pr.SourceBranch, err)
 	}
 
 	// Update DB in both cases (failure or success)
@@ -222,17 +216,17 @@ func (s *Service) updateMergeDataInner(
 			return events.NewDiscardEventErrorf("PR SHA %s is newer than %s", pr.SourceSHA, newSHA)
 		}
 
-		if mergeOutput.MergeSHA == "" || len(mergeOutput.ConflictFiles) > 0 {
+		if len(mergeOutput.ConflictFiles) > 0 {
 			pr.MergeCheckStatus = enum.MergeCheckStatusConflict
-			pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
-			pr.MergeTargetSHA = &mergeOutput.BaseSHA
+			pr.MergeBaseSHA = mergeOutput.MergeBaseSHA.String()
+			pr.MergeTargetSHA = ptr.String(mergeOutput.BaseSHA.String())
 			pr.MergeSHA = nil
 			pr.MergeConflicts = mergeOutput.ConflictFiles
 		} else {
 			pr.MergeCheckStatus = enum.MergeCheckStatusMergeable
-			pr.MergeBaseSHA = mergeOutput.MergeBaseSHA
-			pr.MergeTargetSHA = &mergeOutput.BaseSHA
-			pr.MergeSHA = &mergeOutput.MergeSHA
+			pr.MergeBaseSHA = mergeOutput.MergeBaseSHA.String()
+			pr.MergeTargetSHA = ptr.String(mergeOutput.BaseSHA.String())
+			pr.MergeSHA = ptr.String(mergeOutput.MergeSHA.String())
 			pr.MergeConflicts = nil
 		}
 		pr.Stats.DiffStats = types.NewDiffStats(mergeOutput.CommitCount, mergeOutput.ChangedFileCount)

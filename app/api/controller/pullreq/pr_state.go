@@ -129,7 +129,7 @@ func (c *Controller) State(ctx context.Context,
 			return nil, fmt.Errorf("failed to find merge base: %w", err)
 		}
 
-		mergeBaseSHA = mergeBaseResult.MergeBaseSHA
+		mergeBaseSHA = mergeBaseResult.MergeBaseSHA.String()
 
 		stateChange = changeReopen
 	} else if pr.State == enum.PullReqStateOpen && in.State != enum.PullReqStateOpen {
@@ -147,9 +147,12 @@ func (c *Controller) State(ctx context.Context,
 			pr.MergeCheckStatus = enum.MergeCheckStatusUnchecked
 			pr.MergeSHA = nil
 			pr.MergeConflicts = nil
+			pr.MergeTargetSHA = nil
+			pr.Closed = &pr.Edited
 		case changeReopen:
 			pr.SourceSHA = sourceSHA
 			pr.MergeBaseSHA = mergeBaseSHA
+			pr.Closed = nil
 		}
 
 		pr.ActivitySeq++ // because we need to add the activity entry

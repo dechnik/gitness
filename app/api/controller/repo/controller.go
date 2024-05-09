@@ -29,13 +29,17 @@ import (
 	"github.com/harness/gitness/app/services/codeowners"
 	"github.com/harness/gitness/app/services/importer"
 	"github.com/harness/gitness/app/services/keywordsearch"
+	"github.com/harness/gitness/app/services/locker"
 	"github.com/harness/gitness/app/services/protection"
+	"github.com/harness/gitness/app/services/settings"
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/app/url"
+	"github.com/harness/gitness/audit"
 	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/lock"
 	"github.com/harness/gitness/store/database/dbtx"
 	"github.com/harness/gitness/types"
+	"github.com/harness/gitness/types/check"
 	"github.com/harness/gitness/types/enum"
 )
 
@@ -55,6 +59,7 @@ type Controller struct {
 	pipelineStore      store.PipelineStore
 	principalStore     store.PrincipalStore
 	ruleStore          store.RuleStore
+	settings           *settings.Service
 	principalInfoCache store.PrincipalInfoCache
 	protectionManager  *protection.Manager
 	git                git.Interface
@@ -63,7 +68,11 @@ type Controller struct {
 	eventReporter      *repoevents.Reporter
 	indexer            keywordsearch.Indexer
 	resourceLimiter    limiter.ResourceLimiter
+	locker             *locker.Locker
+	auditService       audit.Service
 	mtxManager         lock.MutexManager
+	identifierCheck    check.RepoIdentifier
+	repoCheck          Check
 }
 
 func NewController(
@@ -76,6 +85,7 @@ func NewController(
 	pipelineStore store.PipelineStore,
 	principalStore store.PrincipalStore,
 	ruleStore store.RuleStore,
+	settings *settings.Service,
 	principalInfoCache store.PrincipalInfoCache,
 	protectionManager *protection.Manager,
 	git git.Interface,
@@ -84,7 +94,11 @@ func NewController(
 	eventReporter *repoevents.Reporter,
 	indexer keywordsearch.Indexer,
 	limiter limiter.ResourceLimiter,
+	locker *locker.Locker,
+	auditService audit.Service,
 	mtxManager lock.MutexManager,
+	identifierCheck check.RepoIdentifier,
+	repoCheck Check,
 ) *Controller {
 	return &Controller{
 		defaultBranch:                 config.Git.DefaultBranch,
@@ -97,6 +111,7 @@ func NewController(
 		pipelineStore:                 pipelineStore,
 		principalStore:                principalStore,
 		ruleStore:                     ruleStore,
+		settings:                      settings,
 		principalInfoCache:            principalInfoCache,
 		protectionManager:             protectionManager,
 		git:                           git,
@@ -105,7 +120,11 @@ func NewController(
 		eventReporter:                 eventReporter,
 		indexer:                       indexer,
 		resourceLimiter:               limiter,
+		locker:                        locker,
+		auditService:                  auditService,
 		mtxManager:                    mtxManager,
+		identifierCheck:               identifierCheck,
+		repoCheck:                     repoCheck,
 	}
 }
 
@@ -114,20 +133,11 @@ func (c *Controller) getRepo(
 	ctx context.Context,
 	repoRef string,
 ) (*types.Repository, error) {
-	if repoRef == "" {
-		return nil, usererror.BadRequest("A valid repository reference must be provided.")
-	}
-
-	repo, err := c.repoStore.FindByRef(ctx, repoRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find repository: %w", err)
-	}
-
-	if repo.Importing {
-		return nil, usererror.BadRequest("Repository import is in progress.")
-	}
-
-	return repo, nil
+	return GetRepo(
+		ctx,
+		c.repoStore,
+		repoRef,
+	)
 }
 
 // getRepoCheckAccess fetches an active repo (not one that is currently being imported)
@@ -139,16 +149,15 @@ func (c *Controller) getRepoCheckAccess(
 	reqPermission enum.Permission,
 	orPublic bool,
 ) (*types.Repository, error) {
-	repo, err := c.getRepo(ctx, repoRef)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find repo: %w", err)
-	}
-
-	if err = apiauth.CheckRepo(ctx, c.authorizer, session, repo, reqPermission, orPublic); err != nil {
-		return nil, fmt.Errorf("access check failed: %w", err)
-	}
-
-	return repo, nil
+	return GetRepoCheckAccess(
+		ctx,
+		c.repoStore,
+		c.authorizer,
+		session,
+		repoRef,
+		reqPermission,
+		orPublic,
+	)
 }
 
 func (c *Controller) validateParentRef(parentRef string) error {

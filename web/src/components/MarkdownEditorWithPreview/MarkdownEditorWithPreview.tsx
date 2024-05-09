@@ -29,18 +29,28 @@ import {
 import type { IconName } from '@harnessio/icons'
 import { Color, FontVariation } from '@harnessio/design-system'
 import cx from 'classnames'
-import type { EditorView } from '@codemirror/view'
-import { keymap } from '@codemirror/view'
+import { DecorationSet, EditorView, Decoration, keymap } from '@codemirror/view'
 import { undo, redo, history } from '@codemirror/commands'
-import { EditorSelection } from '@codemirror/state'
-import { isEmpty } from 'lodash-es'
+import { EditorSelection, StateEffect, StateField } from '@codemirror/state'
+import { isEmpty, isString } from 'lodash-es'
 import { useMutate } from 'restful-react'
+import { useAppContext } from 'AppContext'
 import { Editor } from 'components/Editor/Editor'
 import { MarkdownViewer } from 'components/MarkdownViewer/MarkdownViewer'
 import { useStrings } from 'framework/strings'
-import { CommentBoxOutletPosition, formatBytes, getErrorMessage, handleFileDrop, handlePaste } from 'utils/Utils'
+import {
+  CommentBoxOutletPosition,
+  formatBytes,
+  getErrorMessage,
+  handleFileDrop,
+  handlePaste,
+  removeSpecificTextOptimized
+} from 'utils/Utils'
 import { decodeGitContent, handleUpload, normalizeGitRef } from 'utils/GitUtils'
+import { defaultUsefulOrNot } from 'components/DefaultUsefulOrNot/UsefulOrNot'
+import { AidaClient } from 'utils/types'
 import type { TypesRepository } from 'services/code'
+import { useEventListener } from 'hooks/useEventListener'
 import css from './MarkdownEditorWithPreview.module.scss'
 
 enum MarkdownEditorTab {
@@ -73,6 +83,32 @@ const toolbar: ToolbarItem[] = [
   { icon: 'form', action: ToolbarAction.CHECK_LIST },
   { icon: 'main-code-yaml', action: ToolbarAction.CODE_BLOCK }
 ]
+
+// Define a unique effect to update decorations
+const addDecorationEffect = StateEffect.define<{ decoration: Decoration; from: number; to: number }[]>()
+const removeDecorationEffect = StateEffect.define<{}>() // No payload needed for removal in this simple case// Create a state field to hold decorations
+const decorationField = StateField.define<DecorationSet>({
+  create() {
+    return Decoration.none
+  },
+  update(decorations, tr) {
+    decorations = decorations.map(tr.changes)
+
+    for (const effect of tr.effects) {
+      if (effect.is(addDecorationEffect)) {
+        const add = []
+        for (const { decoration, from, to } of effect.value) {
+          add.push(decoration.range(from, to))
+        }
+        decorations = decorations.update({ add })
+      } else if (effect.is(removeDecorationEffect)) {
+        decorations = Decoration.none
+      }
+    }
+    return decorations
+  },
+  provide: f => EditorView.decorations.from(f)
+})
 
 interface MarkdownEditorWithPreviewProps {
   className?: string
@@ -140,16 +176,29 @@ export function MarkdownEditorWithPreview({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedTab, setSelectedTab] = useState(MarkdownEditorTab.WRITE)
   const viewRef = useRef<EditorView>()
+  const feedbackRef = useRef<HTMLDivElement>()
   const containerRef = useRef<HTMLDivElement>(null)
   const [dirty, setDirty] = useState(false)
   const [open, setOpen] = useState(false)
   const [file, setFile] = useState<File>()
+  const [showFeedback, setShowFeedback] = useState<boolean>(false)
   const { showError } = useToaster()
   const [markdownContent, setMarkdownContent] = useState('')
+  const { customComponents } = useAppContext()
+  const AIDAFeedback = customComponents?.UsefulOrNot ? customComponents.UsefulOrNot : defaultUsefulOrNot
   const { mutate } = useMutate({
     verb: 'POST',
     path: `/api/v1/repos/${repoMetadata?.path}/+/genai/change-summary`
   })
+  const isDirty = useRef(dirty)
+  const [data, setData] = useState({})
+
+  useEffect(
+    function setDirtyRef() {
+      isDirty.current = dirty
+    },
+    [dirty]
+  )
 
   const myKeymap = keymap.of([
     {
@@ -157,29 +206,73 @@ export function MarkdownEditorWithPreview({
       run: undo,
       preventDefault: true
     },
-    { key: 'Mod-Shift-z', run: redo, preventDefault: true }
+    { key: 'Mod-Shift-z', run: redo, preventDefault: true },
+    {
+      key: 'Mod-Enter',
+      run: () => {
+        if (isDirty.current) onSaveHandler()
+        return true
+      },
+      preventDefault: true
+    }
   ])
+  const handleMouseDown = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (event: any) => {
+      const editorDom = viewRef?.current?.dom
+      if (!editorDom?.contains(event.target) && !feedbackRef?.current?.contains(event.target)) {
+        // Clicked outside the editor
+        viewRef?.current?.dispatch({
+          effects: removeDecorationEffect.of({})
+        })
+        setShowFeedback(false)
+      }
+    },
+    [viewRef]
+  )
 
-  const dispatchContent = (content: string, userEvent: boolean) => {
+  useEventListener('mousedown', handleMouseDown)
+
+  const dispatchContent = (content: string, userEvent: boolean, decoration = false) => {
     const view = viewRef.current
-    const currentContent = view?.state.doc.toString()
+    const { from, to } = view?.state.selection.main ?? { from: 0, to: 0 }
+    const changeColorDecoration = Decoration.mark({ class: 'aidaGenText' })
+    const highlightDecoration = Decoration.mark({ class: 'highlightText' })
 
-    view?.dispatch({
-      changes: { from: 0, to: currentContent?.length, insert: content },
-      userEvent: userEvent ? 'input' : 'ignore' // Marking this transaction as an input event makes it part of the undo history
-    })
+    if (decoration) {
+      view?.dispatch({
+        changes: { from: from, to: to, insert: content },
+        effects: addDecorationEffect.of([
+          { decoration: changeColorDecoration, from: from, to: content?.length + from }
+        ]),
+        userEvent: userEvent ? 'input' : 'ignore' // Marking this transaction as an input event makes it part of the undo history,
+      })
+    } else {
+      view?.dispatch({
+        effects: removeDecorationEffect.of({ from: from, to: to }),
+        userEvent: userEvent ? 'input' : 'ignore' // Marking this transaction as an input event makes it part of the undo history
+      })
+      view?.dispatch({
+        changes: { from: from, to: to, insert: content },
+        effects: addDecorationEffect.of([{ decoration: highlightDecoration, from: from, to: content?.length + from }]),
+        userEvent: userEvent ? 'input' : 'ignore' // Marking this transaction as an input event makes it part of the undo history
+      })
+      removeSpecificTextOptimized(viewRef, getString('aidaGenSummary'))
+    }
+    setData({})
   }
 
-  const [data, setData] = useState({})
   useEffect(() => {
     if (flag) {
       if (handleCopilotClick) {
-        dispatchContent(getString('aidaGenSummary'), false)
+        dispatchContent(getString('aidaGenSummary'), false, true)
+        setShowFeedback(false)
         mutate({
           head_ref: normalizeGitRef(sourceGitRef),
           base_ref: normalizeGitRef(targetGitRef)
         })
           .then(res => {
+            res.summary && setShowFeedback(true)
             setData(res.summary || '')
           })
           .catch(err => {
@@ -188,13 +281,14 @@ export function MarkdownEditorWithPreview({
       }
       setFlag?.(false)
     }
-  }, [handleCopilotClick])
+  }, [handleCopilotClick, flag]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!isEmpty(data)) {
       dispatchContent(`${data}`, true)
     }
-  }, [data])
+  }, [data]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const onToolbarAction = useCallback((action: ToolbarAction) => {
     const view = viewRef.current
 
@@ -390,7 +484,7 @@ export function MarkdownEditorWithPreview({
         }))
       )
     }
-  }, [markdownContent])
+  }, [markdownContent]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleButtonClick = () => {
     if (fileInputRef.current) {
@@ -401,6 +495,7 @@ export function MarkdownEditorWithPreview({
   const handleFileChange = (event: any) => {
     setFile(event?.target?.files[0])
   }
+  const onSaveHandler = useCallback(() => onSave?.(viewRef.current?.state.doc.toString() || ''), [onSave])
 
   return (
     <Container ref={containerRef} className={cx(css.container, { [css.noBorder]: noBorder }, className)}>
@@ -461,8 +556,12 @@ export function MarkdownEditorWithPreview({
               variation={ButtonVariation.PRIMARY}
               disabled={false}
               onClick={() => {
-                handleUpload(file as File, setMarkdownContent, repoMetadata, showError, standalone, routingId)
-                setOpen(false)
+                if (file !== undefined) {
+                  handleUpload(file as File, setMarkdownContent, repoMetadata, showError, standalone, routingId)
+                  setOpen(false)
+                } else {
+                  showError(getString('uploadAFileError'))
+                }
               }}
             />
             <Button
@@ -515,7 +614,7 @@ export function MarkdownEditorWithPreview({
       </Container>
       <Container className={css.tabContent}>
         <Editor
-          extensions={[myKeymap, history()]}
+          extensions={[myKeymap, decorationField, history()]}
           routingId={routingId}
           standalone={standalone}
           repoMetadata={repoMetadata}
@@ -527,8 +626,8 @@ export function MarkdownEditorWithPreview({
           setDirty={setDirty}
           maxHeight={editorHeight}
           className={selectedTab === MarkdownEditorTab.PREVIEW ? css.hidden : undefined}
-          onChange={(doc, _viewUpdate, isDirty) => {
-            if (isDirty) {
+          onChange={(doc, _viewUpdate, _isDirty) => {
+            if (_isDirty) {
               onChange?.(doc.toString())
             }
           }}
@@ -536,21 +635,48 @@ export function MarkdownEditorWithPreview({
         {selectedTab === MarkdownEditorTab.PREVIEW && (
           <MarkdownViewer source={viewRef.current?.state.doc.toString() || ''} maxHeight={800} />
         )}
+        {!standalone && showFeedback && (
+          <Container
+            ref={feedbackRef}
+            className={cx(css.feedbackContainer, { [css.hidden]: selectedTab === MarkdownEditorTab.PREVIEW })}>
+            <AIDAFeedback
+              className={css.aidaFeedback}
+              allowCreateTicket={true}
+              allowFeedback={true}
+              telemetry={{
+                aidaClient: AidaClient.CODE_PR_SUMMARY,
+                metadata: {
+                  query: getString('generateSummary'),
+                  generatedResponse: isString(data) ? data : getString('invalidResponse')
+                }
+              }}
+            />
+            <Button
+              variation={ButtonVariation.ICON}
+              minimal
+              icon="main-close"
+              role="close"
+              iconProps={{ size: 12 }}
+              size={ButtonSize.SMALL}
+              className={css.closeButton}
+              onClick={() => {
+                viewRef?.current?.dispatch({
+                  effects: removeDecorationEffect.of({})
+                })
+                setShowFeedback(false)
+              }}
+            />
+          </Container>
+        )}
+        {selectedTab === MarkdownEditorTab.WRITE && outlets[CommentBoxOutletPosition.ENABLE_AIDA_PR_DESC_BANNER]}
       </Container>
+
       {!hideButtons && (
         <Container className={css.buttonsBar}>
           <Layout.Horizontal spacing="small">
-            <Button
-              disabled={!dirty}
-              variation={ButtonVariation.PRIMARY}
-              onClick={() => onSave?.(viewRef.current?.state.doc.toString() || '')}
-              text={i18n.save}
-            />
+            <Button disabled={!dirty} variation={ButtonVariation.PRIMARY} onClick={onSaveHandler} text={i18n.save} />
             {SecondarySaveButton && (
-              <SecondarySaveButton
-                disabled={!dirty}
-                onClick={async () => await onSave?.(viewRef.current?.state.doc.toString() || '')}
-              />
+              <SecondarySaveButton disabled={!dirty} onClick={async () => await onSaveHandler()} />
             )}
             {!hideCancel && <Button variation={ButtonVariation.TERTIARY} onClick={onCancel} text={i18n.cancel} />}
           </Layout.Horizontal>

@@ -51,7 +51,7 @@ func (s *Service) triggerPREventOnBranchUpdate(ctx context.Context,
 	// and need to run mergeable check even nothing was changed on feature1, same applies to main if someone
 	// push new commit to main then develop should merge status should be unchecked.
 	if branch, err := getBranchFromRef(event.Payload.Ref); err == nil {
-		err = s.pullreqStore.UpdateMergeCheckStatus(ctx, event.Payload.RepoID, branch, enum.MergeCheckStatusUnchecked)
+		err = s.pullreqStore.ResetMergeCheckStatus(ctx, event.Payload.RepoID, branch)
 		if err != nil {
 			return err
 		}
@@ -97,7 +97,7 @@ func (s *Service) triggerPREventOnBranchUpdate(ctx context.Context,
 
 			pr.Edited = time.Now().UnixMilli()
 			pr.SourceSHA = event.Payload.NewSHA
-			pr.MergeBaseSHA = newMergeBase
+			pr.MergeBaseSHA = newMergeBase.String()
 
 			// reset merge-check fields for new run
 			pr.MergeCheckStatus = enum.MergeCheckStatusUnchecked
@@ -137,7 +137,7 @@ func (s *Service) triggerPREventOnBranchUpdate(ctx context.Context,
 			OldSHA:          event.Payload.OldSHA,
 			NewSHA:          event.Payload.NewSHA,
 			OldMergeBaseSHA: oldMergeBase,
-			NewMergeBaseSHA: newMergeBase,
+			NewMergeBaseSHA: newMergeBase.String(),
 			Forced:          event.Payload.Forced,
 		})
 

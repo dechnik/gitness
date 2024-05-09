@@ -25,6 +25,7 @@ import (
 	pullreqevents "github.com/harness/gitness/app/events/pullreq"
 	"github.com/harness/gitness/app/services/codecomments"
 	"github.com/harness/gitness/app/services/codeowners"
+	locker "github.com/harness/gitness/app/services/locker"
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/app/services/pullreq"
 	"github.com/harness/gitness/app/sse"
@@ -33,7 +34,6 @@ import (
 	"github.com/harness/gitness/errors"
 	"github.com/harness/gitness/git"
 	gitenum "github.com/harness/gitness/git/enum"
-	"github.com/harness/gitness/lock"
 	"github.com/harness/gitness/store/database/dbtx"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
@@ -55,12 +55,12 @@ type Controller struct {
 	checkStore          store.CheckStore
 	git                 git.Interface
 	eventReporter       *pullreqevents.Reporter
-	mtxManager          lock.MutexManager
 	codeCommentMigrator *codecomments.Migrator
 	pullreqService      *pullreq.Service
 	protectionManager   *protection.Manager
 	sseStreamer         sse.Streamer
 	codeOwners          *codeowners.Service
+	locker              *locker.Locker
 }
 
 func NewController(
@@ -79,12 +79,12 @@ func NewController(
 	checkStore store.CheckStore,
 	git git.Interface,
 	eventReporter *pullreqevents.Reporter,
-	mtxManager lock.MutexManager,
 	codeCommentMigrator *codecomments.Migrator,
 	pullreqService *pullreq.Service,
 	protectionManager *protection.Manager,
 	sseStreamer sse.Streamer,
 	codeowners *codeowners.Service,
+	locker *locker.Locker,
 ) *Controller {
 	return &Controller{
 		tx:                  tx,
@@ -103,11 +103,11 @@ func NewController(
 		git:                 git,
 		codeCommentMigrator: codeCommentMigrator,
 		eventReporter:       eventReporter,
-		mtxManager:          mtxManager,
 		pullreqService:      pullreqService,
 		protectionManager:   protectionManager,
 		sseStreamer:         sseStreamer,
 		codeOwners:          codeowners,
+		locker:              locker,
 	}
 }
 
@@ -134,7 +134,7 @@ func (c *Controller) verifyBranchExistence(ctx context.Context,
 			branch, repo.Identifier, err)
 	}
 
-	return ref.SHA, nil
+	return ref.SHA.String(), nil
 }
 
 func (c *Controller) getRepoCheckAccess(ctx context.Context,
@@ -160,8 +160,10 @@ func (c *Controller) getRepoCheckAccess(ctx context.Context,
 	return repo, nil
 }
 
-func (c *Controller) getCommentCheckModifyAccess(ctx context.Context,
-	pr *types.PullReq, commentID int64,
+func (c *Controller) getCommentForPR(
+	ctx context.Context,
+	pr *types.PullReq,
+	commentID int64,
 ) (*types.PullReqActivity, error) {
 	if commentID <= 0 {
 		return nil, usererror.BadRequest("A valid comment ID must be provided.")
@@ -194,7 +196,7 @@ func (c *Controller) getCommentCheckModifyAccess(ctx context.Context,
 func (c *Controller) getCommentCheckEditAccess(ctx context.Context,
 	session *auth.Session, pr *types.PullReq, commentID int64,
 ) (*types.PullReqActivity, error) {
-	comment, err := c.getCommentCheckModifyAccess(ctx, pr, commentID)
+	comment, err := c.getCommentForPR(ctx, pr, commentID)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +211,7 @@ func (c *Controller) getCommentCheckEditAccess(ctx context.Context,
 func (c *Controller) getCommentCheckChangeStatusAccess(ctx context.Context,
 	pr *types.PullReq, commentID int64,
 ) (*types.PullReqActivity, error) {
-	comment, err := c.getCommentCheckModifyAccess(ctx, pr, commentID)
+	comment, err := c.getCommentForPR(ctx, pr, commentID)
 	if err != nil {
 		return nil, err
 	}

@@ -21,7 +21,7 @@ import (
 	"github.com/harness/gitness/app/api/request"
 	"github.com/harness/gitness/app/api/usererror"
 	"github.com/harness/gitness/git"
-	gittypes "github.com/harness/gitness/git/types"
+	gittypes "github.com/harness/gitness/git/api"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
@@ -69,6 +69,11 @@ type mergePullReq struct {
 type commentCreatePullReqRequest struct {
 	pullReqRequest
 	pullreq.CommentCreateInput
+}
+
+type commentApplySuggestionstRequest struct {
+	pullReqRequest
+	pullreq.CommentApplySuggestionsInput
 }
 
 type pullReqCommentRequest struct {
@@ -197,13 +202,21 @@ var queryParameterCreatedByPullRequest = openapi3.ParameterOrRef{
 	Parameter: &openapi3.Parameter{
 		Name:        request.QueryParamCreatedBy,
 		In:          openapi3.ParameterInQuery,
-		Description: ptr.String("The principal ID who created pull requests."),
+		Description: ptr.String("List of principal IDs who created pull requests."),
 		Required:    ptr.Bool(false),
 		Schema: &openapi3.SchemaOrRef{
 			Schema: &openapi3.Schema{
-				Type: ptrSchemaType(openapi3.SchemaTypeInteger),
+				Type: ptrSchemaType(openapi3.SchemaTypeArray),
+				Items: &openapi3.SchemaOrRef{
+					Schema: &openapi3.Schema{
+						Type: ptrSchemaType(openapi3.SchemaTypeInteger),
+					},
+				},
 			},
 		},
+		// making it look like created_by=1&created_by=2
+		Style:   ptr.String(string(openapi3.EncodingStyleForm)),
+		Explode: ptr.Bool(true),
 	},
 }
 
@@ -225,6 +238,8 @@ var queryParameterStatePullRequest = openapi3.ParameterOrRef{
 				},
 			},
 		},
+		Style:   ptr.String(string(openapi3.EncodingStyleForm)),
+		Explode: ptr.Bool(true),
 	},
 }
 
@@ -320,6 +335,7 @@ func pullReqOperations(reflector *openapi3.Reflector) {
 		queryParameterSourceBranchPullRequest, queryParameterTargetBranchPullRequest,
 		queryParameterQueryPullRequest, queryParameterCreatedByPullRequest,
 		queryParameterOrder, queryParameterSortPullRequest,
+		queryParameterCreatedLt, queryParameterCreatedGt,
 		queryParameterPage, queryParameterLimit)
 	_ = reflector.SetRequest(&listPullReq, new(listPullReqRequest), http.MethodGet)
 	_ = reflector.SetJSONResponse(&listPullReq, new([]types.PullReq), http.StatusOK)
@@ -424,6 +440,19 @@ func pullReqOperations(reflector *openapi3.Reflector) {
 	_ = reflector.SetJSONResponse(&commentStatusPullReq, new(usererror.Error), http.StatusForbidden)
 	_ = reflector.Spec.AddOperation(http.MethodPut,
 		"/repos/{repo_ref}/pullreq/{pullreq_number}/comments/{pullreq_comment_id}/status", commentStatusPullReq)
+
+	commentApplySuggestions := openapi3.Operation{}
+	commentApplySuggestions.WithTags("pullreq")
+	commentApplySuggestions.WithMapOfAnything(map[string]interface{}{"operationId": "commentApplySuggestions"})
+	_ = reflector.SetRequest(&commentApplySuggestions, new(commentApplySuggestionstRequest), http.MethodPost)
+	_ = reflector.SetJSONResponse(&commentApplySuggestions, new(pullreq.CommentApplySuggestionsOutput), http.StatusOK)
+	_ = reflector.SetJSONResponse(&commentApplySuggestions, new(usererror.Error), http.StatusBadRequest)
+	_ = reflector.SetJSONResponse(&commentApplySuggestions, new(usererror.Error), http.StatusInternalServerError)
+	_ = reflector.SetJSONResponse(&commentApplySuggestions, new(usererror.Error), http.StatusUnauthorized)
+	_ = reflector.SetJSONResponse(&commentApplySuggestions, new(usererror.Error), http.StatusForbidden)
+	_ = reflector.SetJSONResponse(&commentApplySuggestions, new(types.RulesViolations), http.StatusUnprocessableEntity)
+	_ = reflector.Spec.AddOperation(http.MethodPost,
+		"/repos/{repo_ref}/pullreq/{pullreq_number}/comments/apply-suggestions", commentApplySuggestions)
 
 	reviewerAdd := openapi3.Operation{}
 	reviewerAdd.WithTags("pullreq")

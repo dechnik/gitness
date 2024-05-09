@@ -14,18 +14,24 @@
  * limitations under the License.
  */
 
-import React, { useEffect, useState } from 'react'
-import { Container, useToaster } from '@harnessio/uicore'
+import React, { useCallback, useEffect, useState } from 'react'
+import { Button, ButtonSize, ButtonVariation, Container, Layout, useToaster, Text } from '@harnessio/uicore'
 import cx from 'classnames'
+import { useParams } from 'react-router-dom'
 import { useMutate } from 'restful-react'
+import { Color, FontVariation } from '@harnessio/design-system'
+import { PopoverPosition } from '@blueprintjs/core'
 import { MarkdownViewer } from 'components/MarkdownViewer/MarkdownViewer'
 import { useStrings } from 'framework/strings'
 import type { OpenapiUpdatePullReqRequest } from 'services/code'
 import { OptionsMenuButton } from 'components/OptionsMenuButton/OptionsMenuButton'
 import { MarkdownEditorWithPreview } from 'components/MarkdownEditorWithPreview/MarkdownEditorWithPreview'
 import { NavigationCheck } from 'components/NavigationCheck/NavigationCheck'
-import { getErrorMessage } from 'utils/Utils'
+import EnableAidaBanner from 'components/Aida/EnableAidaBanner'
+import { CommentBoxOutletPosition, getErrorMessage } from 'utils/Utils'
+import type { Identifier } from 'utils/types'
 import Config from 'Config'
+import { useAppContext } from 'AppContext'
 import type { ConversationProps } from './Conversation'
 import css from './Conversation.module.scss'
 
@@ -41,12 +47,21 @@ export const DescriptionBox: React.FC<DescriptionBoxProps> = ({
   standalone,
   routingId
 }) => {
+  const { hooks } = useAppContext()
+
+  const [flag, setFlag] = useState(false)
   const [edit, setEdit] = useState(false)
   const [dirty, setDirty] = useState(false)
+
   const [originalContent, setOriginalContent] = useState(pullReqMetadata.description as string)
   const [content, setContent] = useState(originalContent)
   const { getString } = useStrings()
   const { showError } = useToaster()
+  const { orgIdentifier, projectIdentifier } = useParams<Identifier>()
+  const { data: aidaSettingResponse, loading: isAidaSettingLoading } = hooks?.useGetSettingValue({
+    identifier: 'aida',
+    queryParams: { accountIdentifier: routingId, orgIdentifier, projectIdentifier }
+  })
 
   const { mutate } = useMutate({
     verb: 'PATCH',
@@ -55,21 +70,78 @@ export const DescriptionBox: React.FC<DescriptionBoxProps> = ({
 
   useEffect(() => {
     setEdit(!pullReqMetadata?.description?.length)
-
     if (pullReqMetadata?.description) {
       setContent(pullReqMetadata?.description)
     }
   }, [pullReqMetadata?.description, pullReqMetadata?.description?.length])
 
+  // write the above function handleCopilotClick in a callback
+  const handleCopilotClick = useCallback(() => {
+    setFlag(true)
+  }, [])
+
+  const handleDescUpdate = useCallback((markdown: string) => {
+    const payload: OpenapiUpdatePullReqRequest = {
+      title: pullReqMetadata.title,
+      description: markdown || ''
+    }
+    setOriginalContent(markdown)
+    mutate(payload)
+      .then(() => {
+        setContent(markdown)
+      })
+      .catch(exception => showError(getErrorMessage(exception), 0, getString('pr.failedToUpdate')))
+  }, [])
+
   return (
     <Container className={cx({ [css.box]: !edit, [css.desc]: !edit })}>
-      <Container padding={!edit ? { left: 'small', bottom: 'small' } : undefined}>
+      <Container>
         {(edit && (
           <MarkdownEditorWithPreview
             routingId={routingId}
             standalone={standalone}
             repoMetadata={repoMetadata}
             value={content}
+            flag={flag}
+            targetGitRef={pullReqMetadata?.target_branch}
+            sourceGitRef={pullReqMetadata?.source_branch}
+            handleCopilotClick={handleCopilotClick}
+            setFlag={setFlag}
+            outlets={{
+              [CommentBoxOutletPosition.START_OF_MARKDOWN_EDITOR_TOOLBAR]: (
+                <>
+                  {!isAidaSettingLoading && aidaSettingResponse?.data?.value == 'true' && !standalone ? (
+                    <Button
+                      size={ButtonSize.SMALL}
+                      variation={ButtonVariation.ICON}
+                      icon={'harness-copilot'}
+                      withoutCurrentColor
+                      iconProps={{
+                        color: Color.GREY_0,
+                        size: 22,
+                        className: css.aidaIcon
+                      }}
+                      className={css.aidaIcon}
+                      onClick={handleCopilotClick}
+                      tooltip={
+                        <Container padding={'small'} width={270}>
+                          <Layout.Vertical flex={{ align: 'center-center' }}>
+                            <Text font={{ variation: FontVariation.BODY }}>{getString('prGenSummary')}</Text>
+                          </Layout.Vertical>
+                        </Container>
+                      }
+                      tooltipProps={{
+                        interactionKind: 'hover',
+                        usePortal: true,
+                        position: PopoverPosition.BOTTOM_LEFT,
+                        popoverClassName: cx(css.popoverDescriptionbox)
+                      }}
+                    />
+                  ) : null}
+                </>
+              ),
+              [CommentBoxOutletPosition.ENABLE_AIDA_PR_DESC_BANNER]: <EnableAidaBanner />
+            }}
             onSave={value => {
               if (value?.split('\n').some(line => line.length > Config.MAX_TEXT_LINE_SIZE_LIMIT)) {
                 return showError(getString('pr.descHasTooLongLine', { max: Config.MAX_TEXT_LINE_SIZE_LIMIT }), 0)
@@ -113,7 +185,12 @@ export const DescriptionBox: React.FC<DescriptionBoxProps> = ({
           />
         )) || (
           <Container className={css.mdWrapper}>
-            <MarkdownViewer source={content} />
+            <MarkdownViewer
+              inDescriptionBox={true}
+              setOriginalContent={setOriginalContent}
+              source={content}
+              handleDescUpdate={handleDescUpdate}
+            />
             <Container className={css.menuWrapper}>
               <OptionsMenuButton
                 isDark={true}

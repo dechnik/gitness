@@ -52,6 +52,7 @@ var WireSet = wire.NewSet(
 	ProvidePullReqFileViewStore,
 	ProvideWebhookStore,
 	ProvideWebhookExecutionStore,
+	ProvideSettingsStore,
 	ProvideCheckStore,
 	ProvideConnectorStore,
 	ProvideTemplateStore,
@@ -107,8 +108,9 @@ func ProvideRepoStore(
 	db *sqlx.DB,
 	spacePathCache store.SpacePathCache,
 	spacePathStore store.SpacePathStore,
+	spaceStore store.SpaceStore,
 ) store.RepoStore {
-	return NewRepoStore(db, spacePathCache, spacePathStore)
+	return NewRepoStore(db, spacePathCache, spacePathStore, spaceStore)
 }
 
 // ProvideRuleStore provides a rule store.
@@ -178,8 +180,9 @@ func ProvideMembershipStore(
 	db *sqlx.DB,
 	principalInfoCache store.PrincipalInfoCache,
 	spacePathStore store.SpacePathStore,
+	spaceStore store.SpaceStore,
 ) store.MembershipStore {
-	return NewMembershipStore(db, principalInfoCache, spacePathStore)
+	return NewMembershipStore(db, principalInfoCache, spacePathStore, spaceStore)
 }
 
 // ProvideTokenStore provides a token store.
@@ -238,4 +241,9 @@ func ProvideCheckStore(db *sqlx.DB,
 	principalInfoCache store.PrincipalInfoCache,
 ) store.CheckStore {
 	return NewCheckStore(db, principalInfoCache)
+}
+
+// ProvideSettingsStore provides a settings store.
+func ProvideSettingsStore(db *sqlx.DB) store.SettingsStore {
+	return NewSettingsStore(db)
 }

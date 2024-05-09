@@ -19,13 +19,17 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/harness/gitness/app/api/usererror"
 	"github.com/harness/gitness/app/auth"
+	"github.com/harness/gitness/app/bootstrap"
 	events "github.com/harness/gitness/app/events/git"
+	repoevents "github.com/harness/gitness/app/events/repo"
 	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/git/hook"
 	"github.com/harness/gitness/types"
 	"github.com/harness/gitness/types/enum"
 
+	"github.com/gotidy/ptr"
 	"github.com/rs/zerolog/log"
 )
 
@@ -43,6 +47,7 @@ const (
 // PostReceive executes the post-receive hook for a git repository.
 func (c *Controller) PostReceive(
 	ctx context.Context,
+	rgit RestrictedGIT,
 	session *auth.Session,
 	in types.GithookPostReceiveInput,
 ) (hook.Output, error) {
@@ -50,15 +55,23 @@ func (c *Controller) PostReceive(
 	if err != nil {
 		return hook.Output{}, err
 	}
-
-	// report ref events (best effort)
-	c.reportReferenceEvents(ctx, repo, in.PrincipalID, in.PostReceiveInput)
-
 	// create output object and have following messages fill its messages
 	out := hook.Output{}
 
+	// update default branch based on ref update info on empty repos.
+	// as the branch could be different than the configured default value.
+	c.handleEmptyRepoPush(ctx, repo, in.PostReceiveInput, &out)
+
+	// report ref events (best effort)
+	c.reportReferenceEvents(ctx, rgit, repo, in.PrincipalID, in.PostReceiveInput)
+
 	// handle branch updates related to PRs - best effort
 	c.handlePRMessaging(ctx, repo, in.PostReceiveInput, &out)
+
+	err = c.postReceiveExtender.Extend(ctx, rgit, session, repo, in, &out)
+	if err != nil {
+		return hook.Output{}, fmt.Errorf("failed to extend post-receive hook: %w", err)
+	}
 
 	return out, nil
 }
@@ -68,6 +81,7 @@ func (c *Controller) PostReceive(
 // TODO: in the future we might want to think about propagating errors so user is aware of events not being triggered.
 func (c *Controller) reportReferenceEvents(
 	ctx context.Context,
+	rgit RestrictedGIT,
 	repo *types.Repository,
 	principalID int64,
 	in hook.PostReceiveInput,
@@ -75,7 +89,7 @@ func (c *Controller) reportReferenceEvents(
 	for _, refUpdate := range in.RefUpdates {
 		switch {
 		case strings.HasPrefix(refUpdate.Ref, gitReferenceNamePrefixBranch):
-			c.reportBranchEvent(ctx, repo, principalID, refUpdate)
+			c.reportBranchEvent(ctx, rgit, repo, principalID, in.Environment, refUpdate)
 		case strings.HasPrefix(refUpdate.Ref, gitReferenceNamePrefixTag):
 			c.reportTagEvent(ctx, repo, principalID, refUpdate)
 		default:
@@ -86,28 +100,33 @@ func (c *Controller) reportReferenceEvents(
 
 func (c *Controller) reportBranchEvent(
 	ctx context.Context,
+	rgit RestrictedGIT,
 	repo *types.Repository,
 	principalID int64,
+	env hook.Environment,
 	branchUpdate hook.ReferenceUpdate,
 ) {
 	switch {
-	case branchUpdate.Old == types.NilSHA:
+	case branchUpdate.Old.IsNil():
 		c.gitReporter.BranchCreated(ctx, &events.BranchCreatedPayload{
 			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         branchUpdate.Ref,
-			SHA:         branchUpdate.New,
+			SHA:         branchUpdate.New.String(),
 		})
-	case branchUpdate.New == types.NilSHA:
+	case branchUpdate.New.IsNil():
 		c.gitReporter.BranchDeleted(ctx, &events.BranchDeletedPayload{
 			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         branchUpdate.Ref,
-			SHA:         branchUpdate.Old,
+			SHA:         branchUpdate.Old.String(),
 		})
 	default:
-		result, err := c.git.IsAncestor(ctx, git.IsAncestorParams{
-			ReadParams:          git.ReadParams{RepoUID: repo.GitUID},
+		result, err := rgit.IsAncestor(ctx, git.IsAncestorParams{
+			ReadParams: git.ReadParams{
+				RepoUID:             repo.GitUID,
+				AlternateObjectDirs: env.AlternateObjectDirs,
+			},
 			AncestorCommitSHA:   branchUpdate.Old,
 			DescendantCommitSHA: branchUpdate.New,
 		})
@@ -124,8 +143,8 @@ func (c *Controller) reportBranchEvent(
 			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         branchUpdate.Ref,
-			OldSHA:      branchUpdate.Old,
-			NewSHA:      branchUpdate.New,
+			OldSHA:      branchUpdate.Old.String(),
+			NewSHA:      branchUpdate.New.String(),
 			Forced:      forced,
 		})
 	}
@@ -138,27 +157,27 @@ func (c *Controller) reportTagEvent(
 	tagUpdate hook.ReferenceUpdate,
 ) {
 	switch {
-	case tagUpdate.Old == types.NilSHA:
+	case tagUpdate.Old.IsNil():
 		c.gitReporter.TagCreated(ctx, &events.TagCreatedPayload{
 			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         tagUpdate.Ref,
-			SHA:         tagUpdate.New,
+			SHA:         tagUpdate.New.String(),
 		})
-	case tagUpdate.New == types.NilSHA:
+	case tagUpdate.New.IsNil():
 		c.gitReporter.TagDeleted(ctx, &events.TagDeletedPayload{
 			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         tagUpdate.Ref,
-			SHA:         tagUpdate.Old,
+			SHA:         tagUpdate.Old.String(),
 		})
 	default:
 		c.gitReporter.TagUpdated(ctx, &events.TagUpdatedPayload{
 			RepoID:      repo.ID,
 			PrincipalID: principalID,
 			Ref:         tagUpdate.Ref,
-			OldSHA:      tagUpdate.Old,
-			NewSHA:      tagUpdate.New,
+			OldSHA:      tagUpdate.Old.String(),
+			NewSHA:      tagUpdate.New.String(),
 			// tags can only be force updated!
 			Forced: true,
 		})
@@ -176,7 +195,7 @@ func (c *Controller) handlePRMessaging(
 	// skip anything that was a batch push / isn't branch related / isn't updating/creating a branch.
 	if len(in.RefUpdates) != 1 ||
 		!strings.HasPrefix(in.RefUpdates[0].Ref, gitReferenceNamePrefixBranch) ||
-		in.RefUpdates[0].New == types.NilSHA {
+		in.RefUpdates[0].New.IsNil() {
 		return
 	}
 
@@ -234,7 +253,54 @@ func (c *Controller) suggestPullRequest(
 
 	// this is a new PR!
 	out.Messages = append(out.Messages,
-		fmt.Sprintf("Create a new PR for branch %q", branchName),
+		fmt.Sprintf("Create a pull request for %q by visiting:", branchName),
 		"  "+c.urlProvider.GenerateUICompareURL(repo.Path, repo.DefaultBranch, branchName),
 	)
+}
+
+// handleEmptyRepoPush updates repo default branch on empty repos if push contains branches.
+func (c *Controller) handleEmptyRepoPush(
+	ctx context.Context,
+	repo *types.Repository,
+	in hook.PostReceiveInput,
+	out *hook.Output,
+) {
+	if !repo.IsEmpty {
+		return
+	}
+
+	var branchName string
+	// we only care about one active branch that was pushed.
+	for _, refUpdate := range in.RefUpdates {
+		if strings.HasPrefix(refUpdate.Ref, gitReferenceNamePrefixBranch) &&
+			!refUpdate.New.IsNil() {
+			branchName = refUpdate.Ref[len(gitReferenceNamePrefixBranch):]
+			break
+		}
+	}
+	if branchName == "" {
+		out.Error = ptr.String(usererror.ErrEmptyRepoNeedsBranch.Error())
+		return
+	}
+
+	oldName := repo.DefaultBranch
+	var err error
+	repo, err = c.repoStore.UpdateOptLock(ctx, repo, func(r *types.Repository) error {
+		r.IsEmpty = false
+		r.DefaultBranch = branchName
+		return nil
+	})
+	if err != nil {
+		log.Ctx(ctx).Warn().Err(err).Msgf("failed to update the repo default branch to %s and is_empty to false", branchName)
+		return
+	}
+
+	if repo.DefaultBranch != oldName {
+		c.repoReporter.DefaultBranchUpdated(ctx, &repoevents.DefaultBranchUpdatedPayload{
+			RepoID:      repo.ID,
+			PrincipalID: bootstrap.NewSystemServiceSession().Principal.ID,
+			OldName:     oldName,
+			NewName:     repo.DefaultBranch,
+		})
+	}
 }
