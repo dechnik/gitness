@@ -25,6 +25,7 @@ import (
 	pullreqevents "github.com/harness/gitness/app/events/pullreq"
 	"github.com/harness/gitness/app/services/codecomments"
 	"github.com/harness/gitness/app/services/codeowners"
+	"github.com/harness/gitness/app/services/importer"
 	locker "github.com/harness/gitness/app/services/locker"
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/app/services/pullreq"
@@ -50,6 +51,7 @@ type Controller struct {
 	reviewerStore       store.PullReqReviewerStore
 	repoStore           store.RepoStore
 	principalStore      store.PrincipalStore
+	principalInfoCache  store.PrincipalInfoCache
 	fileViewStore       store.PullReqFileViewStore
 	membershipStore     store.MembershipStore
 	checkStore          store.CheckStore
@@ -61,6 +63,7 @@ type Controller struct {
 	sseStreamer         sse.Streamer
 	codeOwners          *codeowners.Service
 	locker              *locker.Locker
+	importer            *importer.PullReq
 }
 
 func NewController(
@@ -74,6 +77,7 @@ func NewController(
 	pullreqReviewerStore store.PullReqReviewerStore,
 	repoStore store.RepoStore,
 	principalStore store.PrincipalStore,
+	principalInfoCache store.PrincipalInfoCache,
 	fileViewStore store.PullReqFileViewStore,
 	membershipStore store.MembershipStore,
 	checkStore store.CheckStore,
@@ -85,6 +89,7 @@ func NewController(
 	sseStreamer sse.Streamer,
 	codeowners *codeowners.Service,
 	locker *locker.Locker,
+	importer *importer.PullReq,
 ) *Controller {
 	return &Controller{
 		tx:                  tx,
@@ -97,6 +102,7 @@ func NewController(
 		reviewerStore:       pullreqReviewerStore,
 		repoStore:           repoStore,
 		principalStore:      principalStore,
+		principalInfoCache:  principalInfoCache,
 		fileViewStore:       fileViewStore,
 		membershipStore:     membershipStore,
 		checkStore:          checkStore,
@@ -108,6 +114,7 @@ func NewController(
 		sseStreamer:         sseStreamer,
 		codeOwners:          codeowners,
 		locker:              locker,
+		importer:            importer,
 	}
 }
 
@@ -149,11 +156,11 @@ func (c *Controller) getRepoCheckAccess(ctx context.Context,
 		return nil, fmt.Errorf("failed to find repository: %w", err)
 	}
 
-	if repo.Importing {
-		return nil, usererror.BadRequest("Repository import is in progress.")
+	if repo.State != enum.RepoStateActive {
+		return nil, usererror.BadRequest("Repository is not ready to use.")
 	}
 
-	if err = apiauth.CheckRepo(ctx, c.authorizer, session, repo, reqPermission, false); err != nil {
+	if err = apiauth.CheckRepo(ctx, c.authorizer, session, repo, reqPermission); err != nil {
 		return nil, fmt.Errorf("access check failed: %w", err)
 	}
 

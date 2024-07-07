@@ -37,7 +37,7 @@ import { useHistory } from 'react-router-dom'
 import { useStrings, String } from 'framework/strings'
 import { voidFn, formatDate, getErrorMessage, LIST_FETCHING_LIMIT, PageBrowserProps } from 'utils/Utils'
 import { NewRepoModalButton } from 'components/NewRepoModalButton/NewRepoModalButton'
-import type { TypesRepository } from 'services/code'
+import type { RepoRepositoryOutput } from 'services/code'
 import { useDeleteRepository } from 'services/code'
 import { usePageIndex } from 'hooks/usePageIndex'
 import { useQueryParams } from 'hooks/useQueryParams'
@@ -55,10 +55,9 @@ import { OptionsMenuButton } from 'components/OptionsMenuButton/OptionsMenuButto
 import { useConfirmAct } from 'hooks/useConfirmAction'
 import { getUsingFetch, getConfig } from 'services/config'
 import noRepoImage from './no-repo.svg?url'
-import FeatureMap from './FeatureMap/FeatureMap'
 import css from './RepositoriesListing.module.scss'
 
-interface TypesRepoExtended extends TypesRepository {
+interface TypesRepoExtended extends RepoRepositoryOutput {
   importing?: boolean
   importProgress?: string
 }
@@ -83,7 +82,7 @@ export default function RepositoriesListing() {
   const pageBrowser = useQueryParams<PageBrowserProps>()
   const pageInit = pageBrowser.page ? parseInt(pageBrowser.page) : 1
   const [page, setPage] = usePageIndex(pageInit)
-  const [updatedRepositories, setUpdatedRepositories] = useState<TypesRepository[]>()
+  const [updatedRepositories, setUpdatedRepositories] = useState<RepoRepositoryOutput[]>()
 
   const {
     data: repositories,
@@ -91,7 +90,7 @@ export default function RepositoriesListing() {
     loading,
     refetch,
     response
-  } = useGet<TypesRepository[]>({
+  } = useGet<RepoRepositoryOutput[]>({
     path: `/api/v1/spaces/${space}/+/repos`,
     queryParams: { page, limit: LIST_FETCHING_LIMIT, query: searchTerm },
     debounce: 500
@@ -126,7 +125,7 @@ export default function RepositoriesListing() {
 
   const bearerToken = hooks?.useGetToken?.() || ''
 
-  const addImportProgressToData = async (repos: TypesRepository[]) => {
+  const addImportProgressToData = async (repos: RepoRepositoryOutput[]) => {
     const updatedData = await Promise.all(
       repos.map(async repo => {
         if (repo.importing) {
@@ -173,7 +172,7 @@ export default function RepositoriesListing() {
               <Layout.Horizontal spacing="small" style={{ flexGrow: 1 }}>
                 <Layout.Vertical flex className={css.name} ref={rowContainerRef}>
                   <Text className={css.repoName} width={nameTextWidth} lineClamp={2}>
-                    <Keywords value={searchTerm}>{record.uid}</Keywords>
+                    <Keywords value={searchTerm}>{record.identifier}</Keywords>
                     <RepoPublicLabel isPublic={row.original.is_public} margin={{ left: 'small' }} />
                   </Text>
 
@@ -225,47 +224,85 @@ export default function RepositoriesListing() {
           const confirmCancelImport = useConfirmAct()
           return (
             <Container onClick={Utils.stopEvent}>
-              {row?.original?.importProgress === ImportStatus.FAILED
-                ? null
-                : row.original.importing && (
-                    <OptionsMenuButton
-                      isDark
-                      width="100px"
-                      items={[
-                        {
-                          text: getString('cancelImport'),
-                          onClick: () =>
-                            confirmCancelImport({
-                              title: getString('cancelImport'),
-                              confirmText: getString('cancelImport'),
-                              intent: Intent.DANGER,
-                              message: (
-                                <Text
-                                  style={{ wordBreak: 'break-word' }}
-                                  font={{ variation: FontVariation.BODY2_SEMI, size: 'small' }}>
-                                  <String
-                                    useRichText
-                                    stringID="cancelImportConfirm"
-                                    vars={{ name: row.original?.uid }}
-                                    tagName="div"
-                                  />
-                                </Text>
-                              ),
-                              action: async () => {
-                                deleteRepo(`${row.original?.path as string}/+/`)
-                                  .then(() => {
-                                    showSuccess(getString('cancelledImport'), 2000)
-                                    refetch()
-                                  })
-                                  .catch(err => {
-                                    showError(getErrorMessage(err), 0, getString('failedToCancelImport'))
-                                  })
-                              }
-                            })
-                        }
-                      ]}
-                    />
-                  )}
+              {row?.original?.importProgress === ImportStatus.FAILED ? (
+                <OptionsMenuButton
+                  isDark
+                  width="100px"
+                  items={[
+                    {
+                      text: getString('deleteImport'),
+                      onClick: () =>
+                        confirmCancelImport({
+                          title: getString('deleteImport'),
+                          confirmText: getString('delete'),
+                          intent: Intent.DANGER,
+                          message: (
+                            <Text
+                              style={{ wordBreak: 'break-word' }}
+                              font={{ variation: FontVariation.BODY2_SEMI, size: 'small' }}>
+                              <String
+                                useRichText
+                                stringID="deleteFailedImport"
+                                vars={{ name: row.original?.identifier }}
+                                tagName="div"
+                              />
+                            </Text>
+                          ),
+                          action: async () => {
+                            deleteRepo(`${row.original?.path as string}/+/`)
+                              .then(() => {
+                                showSuccess(getString('deletedImport'), 2000)
+                                refetch()
+                              })
+                              .catch(err => {
+                                showError(getErrorMessage(err), 0, getString('failedToDeleteImport'))
+                              })
+                          }
+                        })
+                    }
+                  ]}
+                />
+              ) : (
+                row.original.importing && (
+                  <OptionsMenuButton
+                    isDark
+                    width="100px"
+                    items={[
+                      {
+                        text: getString('cancelImport'),
+                        onClick: () =>
+                          confirmCancelImport({
+                            title: getString('cancelImport'),
+                            confirmText: getString('cancelImport'),
+                            intent: Intent.DANGER,
+                            message: (
+                              <Text
+                                style={{ wordBreak: 'break-word' }}
+                                font={{ variation: FontVariation.BODY2_SEMI, size: 'small' }}>
+                                <String
+                                  useRichText
+                                  stringID="cancelImportConfirm"
+                                  vars={{ name: row.original?.identifier }}
+                                  tagName="div"
+                                />
+                              </Text>
+                            ),
+                            action: async () => {
+                              deleteRepo(`${row.original?.path as string}/+/`)
+                                .then(() => {
+                                  showSuccess(getString('cancelledImport'), 2000)
+                                  refetch()
+                                })
+                                .catch(err => {
+                                  showError(getErrorMessage(err), 0, getString('failedToCancelImport'))
+                                })
+                            }
+                          })
+                      }
+                    ]}
+                  />
+                )
+              )}
             </Container>
           )
         }
@@ -292,7 +329,7 @@ export default function RepositoriesListing() {
           history.push(routes.toCODERepositories({ space: space as string }))
           refetch()
         } else {
-          history.push(routes.toCODERepository({ repoPath: (repoInfo as TypesRepository).path as string }))
+          history.push(routes.toCODERepository({ repoPath: (repoInfo as RepoRepositoryOutput).path as string }))
         }
       }}
     />
@@ -356,7 +393,6 @@ export default function RepositoriesListing() {
             </Container>
             <ResourceListingPagination response={response} page={page} setPage={setPage} />
           </Container>
-          <FeatureMap />
         </Layout.Horizontal>
       </PageBody>
     </Container>

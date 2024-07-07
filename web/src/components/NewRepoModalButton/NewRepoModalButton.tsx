@@ -47,9 +47,9 @@ import { Icon } from '@harnessio/icons'
 import { Color, FontVariation } from '@harnessio/design-system'
 import { useGet, useMutate } from 'restful-react'
 import { Render } from 'react-jsx-match'
-import { get } from 'lodash-es'
+import { compact, get } from 'lodash-es'
 import { useModalHook } from 'hooks/useModalHook'
-import { useStrings } from 'framework/strings'
+import { String, useStrings } from 'framework/strings'
 import {
   DEFAULT_BRANCH_NAME,
   getErrorMessage,
@@ -69,8 +69,8 @@ import {
   getProviderTypeMapping
 } from 'utils/GitUtils'
 import type {
-  TypesSpace,
-  TypesRepository,
+  SpaceSpaceOutput,
+  RepoRepositoryOutput,
   SpaceImportRepositoriesOutput,
   OpenapiCreateRepositoryRequest
 } from 'services/code'
@@ -95,7 +95,9 @@ export interface NewRepoModalButtonProps extends Omit<ButtonProps, 'onClick' | '
   modalTitle: string
   submitButtonTitle?: string
   cancelButtonTitle?: string
-  onSubmit: (data: TypesRepository & SpaceImportRepositoriesOutput) => void
+  onSubmit: (data: RepoRepositoryOutput & SpaceImportRepositoriesOutput) => void
+  newRepoModalOnly?: boolean
+  notFoundRepoName?: string
 }
 
 export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
@@ -112,7 +114,7 @@ export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
     const [enablePublicRepo, setEnablePublicRepo] = useState(false)
     const { showError } = useToaster()
 
-    const { mutate: createRepo, loading: submitLoading } = useMutate<TypesRepository>({
+    const { mutate: createRepo, loading: submitLoading } = useMutate<RepoRepositoryOutput>({
       verb: 'POST',
       path: `/api/v1/repos`,
       queryParams: standalone
@@ -121,7 +123,7 @@ export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
             space_path: space
           }
     })
-    const { mutate: importRepo, loading: importRepoLoading } = useMutate<TypesRepository>({
+    const { mutate: importRepo, loading: importRepoLoading } = useMutate<RepoRepositoryOutput>({
       verb: 'POST',
       path: `/api/v1/repos/import`,
       queryParams: standalone
@@ -130,7 +132,7 @@ export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
             space_path: space
           }
     })
-    const { mutate: importMultipleRepositories, loading: submitImportLoading } = useMutate<TypesSpace>({
+    const { mutate: importMultipleRepositories, loading: submitImportLoading } = useMutate<SpaceSpaceOutput>({
       verb: 'POST',
       path: `/api/v1/spaces/${space}/+/import`
     })
@@ -177,7 +179,7 @@ export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
           git_ignore: get(formData, 'gitignore', 'none'),
           is_public: get(formData, 'isPublic') === RepoVisibility.PUBLIC,
           license: get(formData, 'license', 'none'),
-          uid: get(formData, 'name', '').trim(),
+          identifier: get(formData, 'name', '').trim(),
           readme: get(formData, 'addReadme', false),
           parent_ref: space
         }
@@ -204,16 +206,26 @@ export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
         host: ''
       }
 
-      if (![GitProviders.GITHUB, GitProviders.GITLAB, GitProviders.BITBUCKET].includes(formData.gitProvider)) {
+      if (
+        ![GitProviders.GITHUB, GitProviders.GITLAB, GitProviders.BITBUCKET, GitProviders.AZURE].includes(
+          formData.gitProvider
+        )
+      ) {
         provider.host = formData.hostUrl
       }
 
       const importPayload = {
         description: formData.description || '',
         parent_ref: space,
-        uid: formData.name,
+        identifier: formData.name,
         provider,
-        provider_repo: `${formData.org}/${formData.repo}`.replace(/\.git$/, ''),
+        provider_repo: compact([
+          formData.org,
+          formData.gitProvider === GitProviders.AZURE ? formData.project : '',
+          formData.repo
+        ])
+          .join('/')
+          .replace(/\.git$/, ''),
         pipelines:
           standalone && formData.importPipelineLabel ? ConvertPipelineLabel.CONVERT : ConvertPipelineLabel.IGNORE
       }
@@ -237,7 +249,11 @@ export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
         host: ''
       }
 
-      if (![GitProviders.GITHUB, GitProviders.GITLAB, GitProviders.BITBUCKET].includes(formData.gitProvider)) {
+      if (
+        ![GitProviders.GITHUB, GitProviders.GITLAB, GitProviders.BITBUCKET, GitProviders.AZURE].includes(
+          formData.gitProvider
+        )
+      ) {
         provider.host = formData.host
       }
 
@@ -245,9 +261,12 @@ export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
         const importPayload = {
           description: (formData.description || '').trim(),
           parent_ref: space,
-          uid: formData.name.trim(),
+          identifier: formData.name.trim(),
           provider,
-          provider_space: formData.organization,
+          provider_space: compact([
+            formData.organization,
+            formData.gitProvider === GitProviders.AZURE ? formData.project : ''
+          ]).join('/'),
           pipelines:
             standalone && formData.importPipelineLabel ? ConvertPipelineLabel.CONVERT : ConvertPipelineLabel.IGNORE
         }
@@ -461,7 +480,19 @@ export const NewRepoModalButton: React.FC<NewRepoModalButtonProps> = ({
     },
     [space]
   )
-  return (
+
+  return props?.newRepoModalOnly ? (
+    <MenuItem
+      icon="plus"
+      text={<String stringID="cde.create.repoNotFound" vars={{ repo: props?.notFoundRepoName }} useRichText />}
+      onClick={e => {
+        e.preventDefault()
+        e.stopPropagation()
+        setRepoOption(repoCreateOptions[0])
+        setTimeout(() => openModal(), 0)
+      }}
+    />
+  ) : (
     <SplitButton
       {...props}
       loading={false}

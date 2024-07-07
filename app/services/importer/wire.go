@@ -16,9 +16,11 @@ package importer
 
 import (
 	"github.com/harness/gitness/app/services/keywordsearch"
+	"github.com/harness/gitness/app/services/publicaccess"
 	"github.com/harness/gitness/app/sse"
 	"github.com/harness/gitness/app/store"
 	"github.com/harness/gitness/app/url"
+	"github.com/harness/gitness/audit"
 	"github.com/harness/gitness/encrypt"
 	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/job"
@@ -30,6 +32,7 @@ import (
 
 var WireSet = wire.NewSet(
 	ProvideRepoImporter,
+	ProvidePullReqImporter,
 )
 
 func ProvideRepoImporter(
@@ -45,6 +48,8 @@ func ProvideRepoImporter(
 	executor *job.Executor,
 	sseStreamer sse.Streamer,
 	indexer keywordsearch.Indexer,
+	publicAccess publicaccess.Service,
+	auditService audit.Service,
 ) (*Repository, error) {
 	importer := &Repository{
 		defaultBranch: config.Git.DefaultBranch,
@@ -58,6 +63,8 @@ func ProvideRepoImporter(
 		scheduler:     scheduler,
 		sseStreamer:   sseStreamer,
 		indexer:       indexer,
+		publicAccess:  publicAccess,
+		auditService:  auditService,
 	}
 
 	err := executor.Register(jobType, importer)
@@ -66,4 +73,26 @@ func ProvideRepoImporter(
 	}
 
 	return importer, nil
+}
+
+func ProvidePullReqImporter(
+	urlProvider url.Provider,
+	git git.Interface,
+	principalStore store.PrincipalStore,
+	repoStore store.RepoStore,
+	pullReqStore store.PullReqStore,
+	pullReqActStore store.PullReqActivityStore,
+	tx dbtx.Transactor,
+) *PullReq {
+	importer := &PullReq{
+		urlProvider:     urlProvider,
+		git:             git,
+		principalStore:  principalStore,
+		repoStore:       repoStore,
+		pullReqStore:    pullReqStore,
+		pullReqActStore: pullReqActStore,
+		tx:              tx,
+	}
+
+	return importer
 }

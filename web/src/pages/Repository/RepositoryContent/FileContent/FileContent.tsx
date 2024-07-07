@@ -123,7 +123,7 @@ export function FileContent({
     {
       resource: {
         resourceType: 'CODE_REPOSITORY',
-        resourceIdentifier: repoMetadata?.uid as string
+        resourceIdentifier: repoMetadata?.identifier as string
       },
       permissions: ['code_repo_push']
     },
@@ -217,6 +217,7 @@ export function FileContent({
               <Container className={css.fileContent}>
                 <Layout.Vertical spacing="small" style={{ maxWidth: '100%' }}>
                   <LatestCommitForFile
+                    gitRef={gitRef}
                     repoMetadata={repoMetadata}
                     latestCommit={resourceContent.latest_commit}
                     standaloneStyle

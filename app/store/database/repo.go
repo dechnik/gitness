@@ -67,7 +67,6 @@ type repository struct {
 	ParentID    int64    `db:"repo_parent_id"`
 	Identifier  string   `db:"repo_uid"`
 	Description string   `db:"repo_description"`
-	IsPublic    bool     `db:"repo_is_public"`
 	CreatedBy   int64    `db:"repo_created_by"`
 	Created     int64    `db:"repo_created"`
 	Updated     int64    `db:"repo_updated"`
@@ -87,8 +86,8 @@ type repository struct {
 	NumOpenPulls   int `db:"repo_num_open_pulls"`
 	NumMergedPulls int `db:"repo_num_merged_pulls"`
 
-	Importing bool `db:"repo_importing"`
-	IsEmpty   bool `db:"repo_is_empty"`
+	State   enum.RepoState `db:"repo_state"`
+	IsEmpty bool           `db:"repo_is_empty"`
 }
 
 const (
@@ -98,7 +97,6 @@ const (
 		,repo_parent_id
 		,repo_uid
 		,repo_description
-		,repo_is_public
 		,repo_created_by
 		,repo_created
 		,repo_updated
@@ -114,7 +112,7 @@ const (
 		,repo_num_closed_pulls
 		,repo_num_open_pulls
 		,repo_num_merged_pulls
-		,repo_importing
+		,repo_state
 		,repo_is_empty`
 )
 
@@ -223,7 +221,6 @@ func (s *RepoStore) Create(ctx context.Context, repo *types.Repository) error {
 			,repo_parent_id
 			,repo_uid
 			,repo_description
-			,repo_is_public
 			,repo_created_by
 			,repo_created
 			,repo_updated
@@ -239,14 +236,13 @@ func (s *RepoStore) Create(ctx context.Context, repo *types.Repository) error {
 			,repo_num_closed_pulls
 			,repo_num_open_pulls
 			,repo_num_merged_pulls
-			,repo_importing
+			,repo_state
 			,repo_is_empty
 		) values (
 			:repo_version
 			,:repo_parent_id
 			,:repo_uid
 			,:repo_description
-			,:repo_is_public
 			,:repo_created_by
 			,:repo_created
 			,:repo_updated
@@ -262,7 +258,7 @@ func (s *RepoStore) Create(ctx context.Context, repo *types.Repository) error {
 			,:repo_num_closed_pulls
 			,:repo_num_open_pulls
 			,:repo_num_merged_pulls
-			,:repo_importing
+			,:repo_state
 			,:repo_is_empty
 		) RETURNING repo_id`
 
@@ -298,7 +294,6 @@ func (s *RepoStore) Update(ctx context.Context, repo *types.Repository) error {
 			,repo_uid = :repo_uid
 			,repo_git_uid = :repo_git_uid
 			,repo_description = :repo_description
-			,repo_is_public = :repo_is_public
 			,repo_default_branch = :repo_default_branch
 			,repo_pullreq_seq = :repo_pullreq_seq
 			,repo_num_forks = :repo_num_forks
@@ -306,7 +301,7 @@ func (s *RepoStore) Update(ctx context.Context, repo *types.Repository) error {
 			,repo_num_closed_pulls = :repo_num_closed_pulls
 			,repo_num_open_pulls = :repo_num_open_pulls
 			,repo_num_merged_pulls = :repo_num_merged_pulls
-			,repo_importing = :repo_importing
+			,repo_state = :repo_state
 			,repo_is_empty = :repo_is_empty
 		WHERE repo_id = :repo_id AND repo_version = :repo_version - 1`
 
@@ -734,7 +729,6 @@ func (s *RepoStore) mapToRepo(
 		ParentID:       in.ParentID,
 		Identifier:     in.Identifier,
 		Description:    in.Description,
-		IsPublic:       in.IsPublic,
 		Created:        in.Created,
 		CreatedBy:      in.CreatedBy,
 		Updated:        in.Updated,
@@ -750,7 +744,7 @@ func (s *RepoStore) mapToRepo(
 		NumClosedPulls: in.NumClosedPulls,
 		NumOpenPulls:   in.NumOpenPulls,
 		NumMergedPulls: in.NumMergedPulls,
-		Importing:      in.Importing,
+		State:          in.State,
 		IsEmpty:        in.IsEmpty,
 		// Path: is set below
 	}
@@ -818,7 +812,6 @@ func mapToInternalRepo(in *types.Repository) *repository {
 		ParentID:       in.ParentID,
 		Identifier:     in.Identifier,
 		Description:    in.Description,
-		IsPublic:       in.IsPublic,
 		Created:        in.Created,
 		CreatedBy:      in.CreatedBy,
 		Updated:        in.Updated,
@@ -834,7 +827,7 @@ func mapToInternalRepo(in *types.Repository) *repository {
 		NumClosedPulls: in.NumClosedPulls,
 		NumOpenPulls:   in.NumOpenPulls,
 		NumMergedPulls: in.NumMergedPulls,
-		Importing:      in.Importing,
+		State:          in.State,
 		IsEmpty:        in.IsEmpty,
 	}
 }
@@ -864,7 +857,7 @@ func applySortFilter(stmt squirrel.SelectBuilder, filter *types.RepoFilter) squi
 		// NOTE: string concatenation is safe because the
 		// order attribute is an enum and is not user-defined,
 		// and is therefore not subject to injection attacks.
-		stmt = stmt.OrderBy("repo_importing desc, repo_uid " + filter.Order.String())
+		stmt = stmt.OrderBy("repo_state desc, repo_uid " + filter.Order.String())
 	case enum.RepoAttrCreated:
 		stmt = stmt.OrderBy("repo_created " + filter.Order.String())
 	case enum.RepoAttrUpdated:

@@ -34,6 +34,13 @@
         display: inline-block;
       }
     }
+
+    :global {
+      .task-list-item,
+      .task-list-item input {
+        cursor: pointer;
+      }
+    }
   }
 }
 
@@ -273,7 +280,7 @@
     .bp3-popover-content {
       padding: var(--spacing-small);
       max-width: 700px;
-      word-break: break-all;
+      word-break: break-word;
     }
   }
 }

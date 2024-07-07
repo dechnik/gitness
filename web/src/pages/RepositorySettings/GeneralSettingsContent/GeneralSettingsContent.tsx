@@ -24,7 +24,6 @@ import {
   Formik,
   useToaster,
   ButtonSize,
-  TextInput,
   FormInput,
   Dialog,
   StringSubstitute
@@ -37,7 +36,7 @@ import { useMutate, useGet } from 'restful-react'
 import { Render } from 'react-jsx-match'
 import { ACCESS_MODES, getErrorMessage, permissionProps, voidFn } from 'utils/Utils'
 import { useStrings } from 'framework/strings'
-import type { TypesRepository } from 'services/code'
+import type { RepoRepositoryOutput } from 'services/code'
 import { useAppContext } from 'AppContext'
 import { useGetSpaceParam } from 'hooks/useGetSpaceParam'
 import { RepoVisibility } from 'utils/GitUtils'
@@ -49,7 +48,7 @@ import Private from '../../../icons/private.svg?url'
 import css from '../RepositorySettings.module.scss'
 
 interface GeneralSettingsProps {
-  repoMetadata: TypesRepository | undefined
+  repoMetadata: RepoRepositoryOutput | undefined
   refetch: () => void
   gitRef: string
   isRepositoryEmpty: boolean
@@ -65,8 +64,7 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
   const { showError, showSuccess } = useToaster()
 
   const space = useGetSpaceParam()
-  const { standalone } = useAppContext()
-  const { hooks } = useAppContext()
+  const { standalone, hooks, isPublicAccessEnabledOnResources } = useAppContext()
   const { getString } = useStrings()
   const currRepoVisibility = repoMetadata?.is_public === true ? RepoVisibility.PUBLIC : RepoVisibility.PRIVATE
 
@@ -77,11 +75,16 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
     path: `/api/v1/repos/${repoMetadata?.path}/+/`
   })
 
+  const { mutate: changeVisibility } = useMutate({
+    verb: 'POST',
+    path: `/api/v1/repos/${repoMetadata?.path}/+/public-access`
+  })
+
   const permEditResult = hooks?.usePermissionTranslate?.(
     {
       resource: {
         resourceType: 'CODE_REPOSITORY',
-        resourceIdentifier: repoMetadata?.uid as string
+        resourceIdentifier: repoMetadata?.identifier as string
       },
       permissions: ['code_repo_edit']
     },
@@ -91,7 +94,7 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
     {
       resource: {
         resourceType: 'CODE_REPOSITORY',
-        resourceIdentifier: repoMetadata?.uid as string
+        resourceIdentifier: repoMetadata?.identifier as string
       },
       permissions: ['code_repo_delete']
     },
@@ -109,50 +112,71 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
     return (
       <Dialog
         className={css.dialogContainer}
-        style={{ width: 610, maxHeight: '95vh', overflow: 'auto' }}
-        title={getString('changeRepoVis')}
+        style={{ width: 585, maxHeight: '95vh', overflow: 'auto' }}
+        title={<Text font={{ variation: FontVariation.H4 }}>{getString('changeRepoVis')}</Text>}
         isOpen
         onClose={hideModal}>
-        <Text>
-          <StringSubstitute
-            str={getString('changeRepoVisContent')}
-            vars={{
-              repoVis: <span className={css.text}>{repoVis}</span>,
-              repoText:
-                repoVis === RepoVisibility.PUBLIC
-                  ? getString('createRepoModal.publicLabel')
-                  : getString('createRepoModal.privateLabel')
+        <Layout.Vertical spacing="xlarge">
+          <Text>
+            <StringSubstitute
+              str={getString('changeRepoVisContent')}
+              vars={{
+                repoVis: <span className={css.text}>{repoVis}</span>
+              }}
+            />
+          </Text>
+          <Container
+            intent="warning"
+            background="yellow100"
+            border={{
+              color: 'orange500'
             }}
-          />
-        </Text>
-        <hr className={css.dividerContainer} />
-        <Layout.Horizontal className={css.buttonContainer}>
-          <Button
-            margin={{ right: 'medium' }}
-            type="submit"
-            text={getString('confirm')}
-            variation={ButtonVariation.PRIMARY}
-            onClick={() => {
-              mutate({ is_public: repoVis === RepoVisibility.PUBLIC ? true : false })
-                .then(() => {
-                  showSuccess(getString('repoUpdate'))
-                  hideModal()
-                  refetch()
-                })
-                .catch(err => {
-                  showError(getErrorMessage(err))
-                })
-              refetch()
-            }}
-          />
-          <Button
-            text={getString('cancel')}
-            variation={ButtonVariation.TERTIARY}
-            onClick={() => {
-              hideModal()
-            }}
-          />
-        </Layout.Horizontal>
+            margin={{ top: 'medium', bottom: 'medium' }}>
+            <Text
+              icon="warning-outline"
+              iconProps={{ size: 16, margin: { right: 'small' } }}
+              padding={{ left: 'large', right: 'large', top: 'small', bottom: 'small' }}
+              color={Color.WARNING}>
+              {repoVis === RepoVisibility.PUBLIC
+                ? getString('createRepoModal.publicWarning')
+                : getString('createRepoModal.privateLabel')}
+            </Text>
+          </Container>
+          <Layout.Horizontal className={css.buttonContainer}>
+            <Button
+              margin={{ right: 'medium' }}
+              type="submit"
+              text={
+                <StringSubstitute
+                  str={getString('confirmRepoVisButton')}
+                  vars={{
+                    repoVis: <span className={css.text}>{repoVis}</span>
+                  }}
+                />
+              }
+              variation={ButtonVariation.PRIMARY}
+              onClick={() => {
+                changeVisibility({ is_public: repoVis === RepoVisibility.PUBLIC ? true : false })
+                  .then(() => {
+                    showSuccess(getString('repoUpdate'))
+                    hideModal()
+                    refetch()
+                  })
+                  .catch(err => {
+                    showError(getErrorMessage(err))
+                  })
+                refetch()
+              }}
+            />
+            <Button
+              text={getString('cancel')}
+              variation={ButtonVariation.TERTIARY}
+              onClick={() => {
+                hideModal()
+              }}
+            />
+          </Layout.Horizontal>
+        </Layout.Vertical>
       </Dialog>
     )
   }
@@ -162,7 +186,7 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
     <Formik
       formName="repoGeneralSettings"
       initialValues={{
-        name: repoMetadata?.uid,
+        name: repoMetadata?.identifier,
         desc: repoMetadata?.description,
         defaultBranch: repoMetadata?.default_branch,
         isPublic: currRepoVisibility
@@ -180,7 +204,7 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
                 </Container>
                 <Container className={css.content}>
                   <Text color={Color.GREY_800} className={css.textSize}>
-                    {repoMetadata?.uid}
+                    {repoMetadata?.identifier}
                   </Text>
                 </Container>
               </Layout.Horizontal>
@@ -192,19 +216,14 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
                 </Container>
                 <Container className={css.content}>
                   {editDesc === ACCESS_MODES.EDIT ? (
-                    <Layout.Horizontal className={css.editContainer}>
-                      <TextInput
+                    <Layout.Vertical className={css.editContainer} margin={{ top: 'xlarge', bottom: 'xlarge' }}>
+                      <FormInput.TextArea
                         className={cx(css.textContainer, css.textSize)}
-                        onChange={evt => {
-                          formik.setFieldValue('desc', (evt.currentTarget as HTMLInputElement)?.value)
-                        }}
-                        value={formik.values.desc || repoMetadata?.description}
+                        placeholder={getString('enterRepoDescription')}
                         name="desc"
                       />
                       <Layout.Horizontal className={css.buttonContainer}>
                         <Button
-                          className={css.saveBtn}
-                          margin={{ right: 'medium' }}
                           type="submit"
                           text={getString('save')}
                           variation={ButtonVariation.SECONDARY}
@@ -231,7 +250,7 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
                           }}
                         />
                       </Layout.Horizontal>
-                    </Layout.Horizontal>
+                    </Layout.Vertical>
                   ) : (
                     <Text color={Color.GREY_800} className={css.textSize}>
                       {formik?.values?.desc || repoMetadata?.description}
@@ -276,7 +295,6 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
                     {defaultBranch === ACCESS_MODES.EDIT ? (
                       <>
                         <Button
-                          className={css.saveBtn}
                           margin={{ right: 'small' }}
                           text={getString('save')}
                           disabled={currentGitRef === repoMetadata?.default_branch}
@@ -315,7 +333,7 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
                 </Container>
               </Layout.Horizontal>
             </Container>
-            <Render when={enablePublicRepo}>
+            <Render when={enablePublicRepo && isPublicAccessEnabledOnResources}>
               <Container padding="large" margin={{ bottom: 'medium' }} className={css.generalContainer}>
                 <Layout.Horizontal padding={{ bottom: 'medium' }}>
                   <Container className={css.label}>
@@ -330,6 +348,7 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
                       onChange={evt => {
                         setRepoVis((evt.target as HTMLInputElement).value as RepoVisibility)
                       }}
+                      {...permissionProps(permEditResult, standalone)}
                       className={css.radioContainer}
                       items={[
                         {
@@ -391,6 +410,7 @@ const GeneralSettingsContent = (props: GeneralSettingsProps) => {
                             setRepoVis(formik.values.isPublic)
                             openModal()
                           }}
+                          {...permissionProps(permEditResult, standalone)}
                         />
                       ) : null}
                     </Layout.Horizontal>

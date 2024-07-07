@@ -53,11 +53,17 @@ var WireSet = wire.NewSet(
 	ProvideWebhookStore,
 	ProvideWebhookExecutionStore,
 	ProvideSettingsStore,
+	ProvidePublicAccessStore,
 	ProvideCheckStore,
 	ProvideConnectorStore,
 	ProvideTemplateStore,
 	ProvideTriggerStore,
 	ProvidePluginStore,
+	ProvidePublicKeyStore,
+	ProvideInfraProviderConfigStore,
+	ProvideInfraProviderResourceStore,
+	ProvideGitspaceConfigStore,
+	ProvideGitspaceInstanceStore,
 )
 
 // migrator is helper function to set up the database by performing automated
@@ -129,6 +135,26 @@ func ProvideJobStore(db *sqlx.DB) job.Store {
 // ProvidePipelineStore provides a pipeline store.
 func ProvidePipelineStore(db *sqlx.DB) store.PipelineStore {
 	return NewPipelineStore(db)
+}
+
+// ProvideInfraProviderConfigStore provides a infraprovider config store.
+func ProvideInfraProviderConfigStore(db *sqlx.DB) store.InfraProviderConfigStore {
+	return NewInfraProviderConfigStore(db)
+}
+
+// ProvideGitspaceInstanceStore provides a infraprovider resource store.
+func ProvideInfraProviderResourceStore(db *sqlx.DB) store.InfraProviderResourceStore {
+	return NewInfraProviderResourceStore(db)
+}
+
+// ProvideGitspaceConfigStore provides a gitspace config store.
+func ProvideGitspaceConfigStore(db *sqlx.DB) store.GitspaceConfigStore {
+	return NewGitspaceConfigStore(db)
+}
+
+// ProvideGitspaceInstanceStore provides a gitspace instance store.
+func ProvideGitspaceInstanceStore(db *sqlx.DB) store.GitspaceInstanceStore {
+	return NewGitspaceInstanceStore(db)
 }
 
 // ProvideStageStore provides a stage store.
@@ -246,4 +272,14 @@ func ProvideCheckStore(db *sqlx.DB,
 // ProvideSettingsStore provides a settings store.
 func ProvideSettingsStore(db *sqlx.DB) store.SettingsStore {
 	return NewSettingsStore(db)
+}
+
+// ProvidePublicAccessStore provides a public access store.
+func ProvidePublicAccessStore(db *sqlx.DB) store.PublicAccessStore {
+	return NewPublicAccessStore(db)
+}
+
+// ProvidePublicKeyStore provides a public key store.
+func ProvidePublicKeyStore(db *sqlx.DB) store.PublicKeyStore {
+	return NewPublicKeyStore(db)
 }

@@ -19,6 +19,7 @@ import (
 	pullreqevents "github.com/harness/gitness/app/events/pullreq"
 	"github.com/harness/gitness/app/services/codecomments"
 	"github.com/harness/gitness/app/services/codeowners"
+	"github.com/harness/gitness/app/services/importer"
 	"github.com/harness/gitness/app/services/locker"
 	"github.com/harness/gitness/app/services/protection"
 	"github.com/harness/gitness/app/services/pullreq"
@@ -40,21 +41,21 @@ func ProvideController(tx dbtx.Transactor, urlProvider url.Provider, authorizer 
 	pullReqStore store.PullReqStore, pullReqActivityStore store.PullReqActivityStore,
 	codeCommentsView store.CodeCommentView,
 	pullReqReviewStore store.PullReqReviewStore, pullReqReviewerStore store.PullReqReviewerStore,
-	repoStore store.RepoStore, principalStore store.PrincipalStore,
+	repoStore store.RepoStore, principalStore store.PrincipalStore, principalInfoCache store.PrincipalInfoCache,
 	fileViewStore store.PullReqFileViewStore, membershipStore store.MembershipStore,
 	checkStore store.CheckStore,
 	rpcClient git.Interface, eventReporter *pullreqevents.Reporter, codeCommentMigrator *codecomments.Migrator,
 	pullreqService *pullreq.Service, ruleManager *protection.Manager, sseStreamer sse.Streamer,
-	codeOwners *codeowners.Service, locker *locker.Locker,
+	codeOwners *codeowners.Service, locker *locker.Locker, importer *importer.PullReq,
 ) *Controller {
 	return NewController(tx, urlProvider, authorizer,
 		pullReqStore, pullReqActivityStore,
 		codeCommentsView,
 		pullReqReviewStore, pullReqReviewerStore,
-		repoStore, principalStore,
+		repoStore, principalStore, principalInfoCache,
 		fileViewStore, membershipStore,
 		checkStore,
 		rpcClient, eventReporter,
 		codeCommentMigrator,
-		pullreqService, ruleManager, sseStreamer, codeOwners, locker)
+		pullreqService, ruleManager, sseStreamer, codeOwners, locker, importer)
 }

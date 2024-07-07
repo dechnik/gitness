@@ -26,10 +26,13 @@ import (
 
 	"github.com/harness/gitness/app/bootstrap"
 	"github.com/harness/gitness/app/githook"
+	"github.com/harness/gitness/app/paths"
 	"github.com/harness/gitness/app/services/keywordsearch"
+	"github.com/harness/gitness/app/services/publicaccess"
 	"github.com/harness/gitness/app/sse"
 	"github.com/harness/gitness/app/store"
 	gitnessurl "github.com/harness/gitness/app/url"
+	"github.com/harness/gitness/audit"
 	"github.com/harness/gitness/encrypt"
 	"github.com/harness/gitness/git"
 	"github.com/harness/gitness/job"
@@ -63,6 +66,8 @@ type Repository struct {
 	scheduler     *job.Scheduler
 	sseStreamer   sse.Streamer
 	indexer       keywordsearch.Indexer
+	publicAccess  publicaccess.Service
+	auditService  audit.Service
 }
 
 var _ job.Handler = (*Repository)(nil)
@@ -81,6 +86,7 @@ const (
 
 type Input struct {
 	RepoID    int64          `json:"repo_id"`
+	Public    bool           `json:"public"`
 	GitUser   string         `json:"git_user"`
 	GitPass   string         `json:"git_pass"`
 	CloneURL  string         `json:"clone_url"`
@@ -98,11 +104,13 @@ func (r *Repository) Run(
 	ctx context.Context,
 	provider Provider,
 	repo *types.Repository,
+	public bool,
 	cloneURL string,
 	pipelines PipelineOption,
 ) error {
 	jobDef, err := r.getJobDef(JobIDFromRepoID(repo.ID), Input{
 		RepoID:    repo.ID,
+		Public:    public,
 		GitUser:   provider.Username,
 		GitPass:   provider.Password,
 		CloneURL:  cloneURL,
@@ -120,6 +128,7 @@ func (r *Repository) RunMany(ctx context.Context,
 	groupID string,
 	provider Provider,
 	repoIDs []int64,
+	publics []bool,
 	cloneURLs []string,
 	pipelines PipelineOption,
 ) error {
@@ -137,6 +146,7 @@ func (r *Repository) RunMany(ctx context.Context,
 
 		jobDef, err := r.getJobDef(JobIDFromRepoID(repoID), Input{
 			RepoID:    repoID,
+			Public:    publics[k],
 			GitUser:   provider.Username,
 			GitPass:   provider.Password,
 			CloneURL:  cloneURL,
@@ -228,7 +238,7 @@ func (r *Repository) Handle(ctx context.Context, data string, _ job.ProgressRepo
 		return "", fmt.Errorf("failed to find repo by id: %w", err)
 	}
 
-	if !repo.Importing {
+	if repo.State != enum.RepoStateGitImport {
 		return "", fmt.Errorf("repository %s is not being imported", repo.Identifier)
 	}
 
@@ -236,6 +246,50 @@ func (r *Repository) Handle(ctx context.Context, data string, _ job.ProgressRepo
 		Int64("repo.id", repo.ID).
 		Str("repo.path", repo.Path).
 		Logger()
+
+	log.Info().Msg("configure access mode")
+
+	parentPath, _, err := paths.DisectLeaf(repo.Path)
+	if err != nil {
+		return "", fmt.Errorf("failed to disect path %q: %w", repo.Path, err)
+	}
+	isPublicAccessSupported, err := r.publicAccess.IsPublicAccessSupported(ctx, parentPath)
+	if err != nil {
+		return "", fmt.Errorf(
+			"failed to check if public access is supported for parent space %q: %w",
+			parentPath,
+			err,
+		)
+	}
+	isRepoPublic := input.Public
+	if !isPublicAccessSupported {
+		log.Debug().Msg("public access is not supported, import public repo as private instead")
+		isRepoPublic = false
+	}
+	err = r.publicAccess.Set(ctx, enum.PublicResourceTypeRepo, repo.Path, isRepoPublic)
+	if err != nil {
+		return "", fmt.Errorf("failed to set repo access mode: %w", err)
+	}
+
+	if isRepoPublic {
+		err = r.auditService.Log(ctx,
+			bootstrap.NewPipelineServiceSession().Principal,
+			audit.NewResource(audit.ResourceTypeRepository, repo.Identifier),
+			audit.ActionUpdated,
+			paths.Parent(repo.Path),
+			audit.WithOldObject(audit.RepositoryObject{
+				Repository: *repo,
+				IsPublic:   false,
+			}),
+			audit.WithNewObject(audit.RepositoryObject{
+				Repository: *repo,
+				IsPublic:   true,
+			}),
+		)
+		if err != nil {
+			log.Warn().Msgf("failed to insert audit log for updating repo to public: %s", err)
+		}
+	}
 
 	log.Info().Msg("create git repository")
 
@@ -248,7 +302,7 @@ func (r *Repository) Handle(ctx context.Context, data string, _ job.ProgressRepo
 
 	err = func() error {
 		repo, err = r.repoStore.UpdateOptLock(ctx, repo, func(repo *types.Repository) error {
-			if !repo.Importing {
+			if repo.State != enum.RepoStateGitImport {
 				return errors.New("repository has already finished importing")
 			}
 			repo.GitUID = gitUID
@@ -274,13 +328,13 @@ func (r *Repository) Handle(ctx context.Context, data string, _ job.ProgressRepo
 		log.Info().Msg("update repo in DB")
 
 		repo, err = r.repoStore.UpdateOptLock(ctx, repo, func(repo *types.Repository) error {
-			if !repo.Importing {
+			if repo.State != enum.RepoStateGitImport {
 				return errors.New("repository has already finished importing")
 			}
 
 			repo.GitUID = gitUID
 			repo.DefaultBranch = defaultBranch
-			repo.Importing = false
+			repo.State = enum.RepoStateActive
 
 			return nil
 		})
@@ -331,7 +385,7 @@ func (r *Repository) Handle(ctx context.Context, data string, _ job.ProgressRepo
 func (r *Repository) GetProgress(ctx context.Context, repo *types.Repository) (job.Progress, error) {
 	progress, err := r.scheduler.GetJobProgress(ctx, JobIDFromRepoID(repo.ID))
 	if errors.Is(err, gitness_store.ErrResourceNotFound) {
-		if repo.Importing {
+		if repo.State == enum.RepoStateGitImport {
 			// if the job is not found but repo is marked as importing, return state=failed
 			return job.FailProgress(), nil
 		}
@@ -347,7 +401,7 @@ func (r *Repository) GetProgress(ctx context.Context, repo *types.Repository) (j
 }
 
 func (r *Repository) Cancel(ctx context.Context, repo *types.Repository) error {
-	if !repo.Importing {
+	if repo.State != enum.RepoStateGitImport {
 		return nil
 	}
 

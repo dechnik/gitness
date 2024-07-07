@@ -48,7 +48,7 @@ export const EmptyRepositoryInfo: React.FC<Pick<GitInfoProps, 'repoMetadata'>> =
     {
       resource: {
         resourceType: 'CODE_REPOSITORY',
-        resourceIdentifier: repoMetadata?.uid as string
+        resourceIdentifier: repoMetadata?.identifier as string
       },
       permissions: ['code_repo_push']
     },
@@ -96,6 +96,10 @@ export const EmptyRepositoryInfo: React.FC<Pick<GitInfoProps, 'repoMetadata'>> =
         </Text>
         <Layout.Horizontal>
           <Container padding={{ bottom: 'medium' }} width={400} margin={{ right: 'small' }}>
+            {
+              // TODO: replace with data from config api
+              repoMetadata.git_ssh_url && <Text>{getString('http')}</Text>
+            }
             <Layout.Horizontal className={css.layout}>
               <Text className={css.url}>{repoMetadata.git_url}</Text>
               <FlexExpander />
@@ -106,16 +110,33 @@ export const EmptyRepositoryInfo: React.FC<Pick<GitInfoProps, 'repoMetadata'>> =
                 iconProps={{ size: 14 }}
               />
             </Layout.Horizontal>
+            {
+              // TODO: replace with data from config api
+              repoMetadata.git_ssh_url && (
+                <>
+                  <Text>{getString('ssh')}</Text>
+                  <Layout.Horizontal className={css.layout}>
+                    <Text className={css.url}>{repoMetadata.git_ssh_url}</Text>
+                    <FlexExpander />
+                    <CopyButton
+                      content={repoMetadata?.git_ssh_url as string}
+                      id={css.cloneCopyButton}
+                      icon={CodeIcon.Copy}
+                      iconProps={{ size: 14 }}
+                    />
+                  </Layout.Horizontal>
+                </>
+              )
+            }
           </Container>
-
-          <Button
-            onClick={() => {
-              setFlag(true)
-            }}
-            variation={ButtonVariation.SECONDARY}>
-            {getString('generateCloneCred')}
-          </Button>
         </Layout.Horizontal>
+        <Button
+          onClick={() => {
+            setFlag(true)
+          }}
+          variation={ButtonVariation.SECONDARY}>
+          {getString('generateCloneCred')}
+        </Button>
         <Text font={{ variation: FontVariation.BODY, size: 'small' }}>
           <StringSubstitute
             str={getString('manageCredText')}
@@ -138,7 +159,7 @@ export const EmptyRepositoryInfo: React.FC<Pick<GitInfoProps, 'repoMetadata'>> =
         className={css.divContainer}>
         <MarkdownViewer
           source={getString('repoEmptyMarkdownClonePush')
-            .replace(/REPO_NAME/g, repoMetadata.uid || '')
+            .replace(/REPO_NAME/g, repoMetadata.identifier || '')
             .replace(/DEFAULT_BRANCH/g, repoMetadata.default_branch || '')}
         />
       </Container>
@@ -149,7 +170,7 @@ export const EmptyRepositoryInfo: React.FC<Pick<GitInfoProps, 'repoMetadata'>> =
         <MarkdownViewer
           source={getString('repoEmptyMarkdownExisting')
             .replace(/REPO_URL/g, repoMetadata.git_url || '')
-            .replace(/REPO_NAME/g, repoMetadata.uid || '')
+            .replace(/REPO_NAME/g, repoMetadata.identifier || '')
             .replace(/CREATE_API_TOKEN_URL/g, standalone ? routes.toCODEUserProfile() : currentUserProfileURL || '')
             .replace(/DEFAULT_BRANCH/g, repoMetadata.default_branch || '')}
         />

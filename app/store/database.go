@@ -290,6 +290,13 @@ type (
 		ListSpaces(ctx context.Context, userID int64, filter types.MembershipSpaceFilter) ([]types.MembershipSpace, error)
 	}
 
+	// PublicAccessStore defines the publicly accessible resources data storage.
+	PublicAccessStore interface {
+		Find(ctx context.Context, typ enum.PublicResourceType, id int64) (bool, error)
+		Create(ctx context.Context, typ enum.PublicResourceType, id int64) error
+		Delete(ctx context.Context, typ enum.PublicResourceType, id int64) error
+	}
+
 	// TokenStore defines the token data storage.
 	TokenStore interface {
 		// Find finds the token by id
@@ -554,6 +561,93 @@ type (
 		ListResults(ctx context.Context, repoID int64, commitSHA string) ([]types.CheckResult, error)
 	}
 
+	GitspaceConfigStore interface {
+		// Find returns a gitspace config given a ID from the datastore.
+		Find(ctx context.Context, id int64) (*types.GitspaceConfig, error)
+
+		// FindByIdentifier returns a gitspace config with a given UID in a space
+		FindByIdentifier(ctx context.Context, spaceID int64, identifier string) (*types.GitspaceConfig, error)
+
+		// Create creates a new gitspace config in the datastore.
+		Create(ctx context.Context, gitspaceConfig *types.GitspaceConfig) error
+
+		// Update tries to update a gitspace config in the datastore with optimistic locking.
+		Update(ctx context.Context, gitspaceConfig *types.GitspaceConfig) (*types.GitspaceConfig, error)
+
+		// List lists the gitspace configs present in a parent space ID in the datastore.
+		List(ctx context.Context, filter *types.GitspaceFilter) ([]*types.GitspaceConfig, error)
+
+		// Count the number of gitspace configs in a space matching the given filter.
+		Count(ctx context.Context, filter *types.GitspaceFilter) (int64, error)
+
+		// Delete deletes a pipeline ID from the datastore.
+		Delete(ctx context.Context, id int64) error
+
+		// DeleteByIdentifier deletes the gitspaceConfig with the given identifier for the given space.
+		DeleteByIdentifier(ctx context.Context, spaceID int64, identifier string) error
+	}
+
+	GitspaceInstanceStore interface {
+		// Find returns a gitspace instance given a gitspace instance ID from the datastore.
+		Find(ctx context.Context, id int64) (*types.GitspaceInstance, error)
+
+		// FindLatestByGitspaceConfigID returns the latest gitspace instance given a gitspace config ID from the datastore.
+		FindLatestByGitspaceConfigID(
+			ctx context.Context,
+			gitspaceConfigID int64,
+			spaceID int64,
+		) (*types.GitspaceInstance, error)
+
+		// Create creates a new gitspace instance in the datastore.
+		Create(ctx context.Context, gitspaceInstance *types.GitspaceInstance) error
+
+		// Update tries to update a gitspace instance in the datastore with optimistic locking.
+		Update(ctx context.Context, gitspaceInstance *types.GitspaceInstance) (*types.GitspaceInstance, error)
+
+		// List lists the gitspace instance present in a parent space ID in the datastore.
+		List(ctx context.Context, filter *types.GitspaceFilter) ([]*types.GitspaceInstance, error)
+
+		// Delete deletes a gitspace instance ID from the datastore.
+		Delete(ctx context.Context, id int64) error
+	}
+
+	InfraProviderConfigStore interface {
+		// Find returns a infra provider config given a ID from the datastore.
+		Find(ctx context.Context, id int64) (*types.InfraProviderConfig, error)
+
+		// FindByIdentifier returns a infra provider config with a given UID in a space
+		FindByIdentifier(ctx context.Context, spaceID int64, identifier string) (*types.InfraProviderConfig, error)
+
+		// Create creates a new infra provider config in the datastore.
+		Create(ctx context.Context, infraProviderConfig *types.InfraProviderConfig) error
+
+		// DeleteByIdentifier deletes the infra provider config with the given identifier for the given space.
+		DeleteByIdentifier(ctx context.Context, spaceID int64, identifier string) error
+	}
+
+	InfraProviderResourceStore interface {
+		// Find returns a Infra provider resource given a ID from the datastore.
+		Find(ctx context.Context, id int64) (*types.InfraProviderResource, error)
+
+		// FindByIdentifier returns a infra provider resource with a given UID in a space
+		FindByIdentifier(ctx context.Context, spaceID int64, identifier string) (*types.InfraProviderResource, error)
+
+		// Create creates a new infra provider resource in the datastore.
+		Create(ctx context.Context, infraProviderConfigID int64, infraProviderResource *types.InfraProviderResource) error
+
+		// List lists the infra provider resource present for the gitspace config in a parent space ID in the datastore.
+		List(ctx context.Context,
+			infraProviderConfigID int64,
+			filter types.ListQueryFilter,
+		) ([]*types.InfraProviderResource, error)
+
+		// ListAll lists all the infra provider resource in a given space.
+		ListAll(ctx context.Context, parentID int64, filter types.ListQueryFilter) ([]*types.InfraProviderResource, error)
+
+		// DeleteByIdentifier deletes the Infra provider resource with the given identifier for the given space.
+		DeleteByIdentifier(ctx context.Context, spaceID int64, identifier string) error
+	}
+
 	PipelineStore interface {
 		// Find returns a pipeline given a pipeline ID from the datastore.
 		Find(ctx context.Context, id int64) (*types.Pipeline, error)
@@ -798,5 +892,47 @@ type (
 	UserGroupStore interface {
 		// FindByIdentifier returns a types.UserGroup given a space ID and identifier.
 		FindByIdentifier(ctx context.Context, spaceID int64, identifier string) (*types.UserGroup, error)
+	}
+
+	PublicKeyStore interface {
+		// Find returns a public key given an ID.
+		Find(ctx context.Context, id int64) (*types.PublicKey, error)
+
+		// FindByIdentifier returns a public key given a principal ID and an identifier.
+		FindByIdentifier(ctx context.Context, principalID int64, identifier string) (*types.PublicKey, error)
+
+		// Create creates a new public key.
+		Create(ctx context.Context, publicKey *types.PublicKey) error
+
+		// DeleteByIdentifier deletes a public key.
+		DeleteByIdentifier(ctx context.Context, principalID int64, identifier string) error
+
+		// MarkAsVerified updates the public key to mark it as verified.
+		MarkAsVerified(ctx context.Context, id int64, verified int64) error
+
+		// Count returns the number of public keys for the principal that match provided the filter.
+		Count(ctx context.Context, principalID int64, filter *types.PublicKeyFilter) (int, error)
+
+		// List returns the public keys for the principal that match provided the filter.
+		List(ctx context.Context, principalID int64, filter *types.PublicKeyFilter) ([]types.PublicKey, error)
+
+		// ListByFingerprint returns public keys given a fingerprint and key usage.
+		ListByFingerprint(ctx context.Context, fingerprint string) ([]types.PublicKey, error)
+	}
+
+	GitspaceEventStore interface {
+		// Create creates a new record for the given gitspace event.
+		Create(ctx context.Context, gitspaceEvent *types.GitspaceEvent) error
+
+		// List returns all events for the given query filter.
+		List(ctx context.Context, filter *types.GitspaceEventFilter) ([]*types.GitspaceEvent, error)
+
+		// FindLatestByTypeAndGitspaceConfigID returns the latest gitspace event for the given config ID and event type
+		// where the entity type is gitspace config.
+		FindLatestByTypeAndGitspaceConfigID(
+			ctx context.Context,
+			eventType enum.GitspaceEventType,
+			gitspaceConfigID int64,
+		) (*types.GitspaceEvent, error)
 	}
 )

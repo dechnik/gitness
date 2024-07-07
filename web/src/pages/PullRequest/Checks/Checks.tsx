@@ -22,7 +22,7 @@ import { useHistory } from 'react-router-dom'
 import { Container, Layout, Text, FlexExpander, Button, ButtonVariation, ButtonSize } from '@harnessio/uicore'
 import { Color, FontVariation } from '@harnessio/design-system'
 import { LogViewer } from 'components/LogViewer/LogViewer'
-import { PullRequestCheckType } from 'utils/Utils'
+import { PullRequestCheckType, PullRequestSection } from 'utils/Utils'
 import { useAppContext } from 'AppContext'
 import { useStrings } from 'framework/strings'
 import { Split } from 'components/Split/Split'
@@ -74,7 +74,7 @@ export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullReqMetadata, p
     if (selectedStage) {
       return routes.toCODEExecution({
         repoPath: repoMetadata?.path as string,
-        pipeline: selectedItemData?.uid as string,
+        pipeline: selectedItemData?.identifier as string,
         execution: get(selectedItemData, 'payload.data.execution_number', '')
       })
     } else {
@@ -123,7 +123,7 @@ export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullReqMetadata, p
     // Set up the polling with setInterval
     const intervalId = setInterval(fetchAndProcessData, pollingInterval)
     // Clean up the interval on component unmount
-    return () => clearInterval(intervalId)
+    return () => clearInterval(intervalId) // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [hookData, enqueue, dispatch])
 
   if (!prChecksDecisionResult) {
@@ -176,7 +176,7 @@ export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullReqMetadata, p
   }
 
   return (
-    <Container className={css.main}>
+    <Container className={css.main} data-page-section={PullRequestSection.CHECKS}>
       <Match expr={prChecksDecisionResult?.overallStatus}>
         <Truthy>
           <Split split="vertical" size={400} minSize={300} maxSize={700} primary="first">
@@ -211,7 +211,7 @@ export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullReqMetadata, p
                       color={Color.WHITE}
                       lineClamp={1}
                       tooltipProps={{ portalClassName: css.popover }}>
-                      {selectedItemData?.uid}
+                      {selectedItemData?.identifier}
                       {selectedStage ? ` / ${selectedStage.name}` : ''}
                     </Text>
                     <FlexExpander />
@@ -246,7 +246,7 @@ export const Checks: React.FC<ChecksProps> = ({ repoMetadata, pullReqMetadata, p
                       <CheckPipelineSteps
                         repoMetadata={repoMetadata}
                         pullReqMetadata={pullReqMetadata}
-                        pipelineName={selectedItemData?.uid as string}
+                        pipelineName={selectedItemData?.identifier as string}
                         stage={selectedStage as TypesStage}
                         executionNumber={get(selectedItemData, 'payload.data.execution_number', '')}
                       />

@@ -27,6 +27,7 @@ const (
 	ResourceTypeSecret         ResourceType = "SECRET"
 	ResourceTypeConnector      ResourceType = "CONNECTOR"
 	ResourceTypeTemplate       ResourceType = "TEMPLATE"
+	ResourceTypeGitspace       ResourceType = "GITSPACE"
 )
 
 // Permission represents the different types of permissions a principal can have.
@@ -49,6 +50,7 @@ const (
 	PermissionRepoEdit              Permission = "repo_edit"
 	PermissionRepoDelete            Permission = "repo_delete"
 	PermissionRepoPush              Permission = "repo_push"
+	PermissionRepoReview            Permission = "repo_review"
 	PermissionRepoReportCommitCheck Permission = "repo_reportCommitCheck"
 )
 
@@ -119,4 +121,14 @@ const (
 	PermissionTemplateEdit   Permission = "template_edit"
 	PermissionTemplateDelete Permission = "template_delete"
 	PermissionTemplateAccess Permission = "template_access"
+)
+
+const (
+	/*
+		----- GITSPACE -----
+	*/
+	PermissionGitspaceView   Permission = "gitspace_view"
+	PermissionGitspaceEdit   Permission = "gitspace_edit"
+	PermissionGitspaceDelete Permission = "gitspace_delete"
+	PermissionGitspaceAccess Permission = "gitspace_access"
 )

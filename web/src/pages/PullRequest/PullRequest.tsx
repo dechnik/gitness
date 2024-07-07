@@ -25,7 +25,7 @@ import { useStrings } from 'framework/strings'
 import { RepositoryPageHeader } from 'components/RepositoryPageHeader/RepositoryPageHeader'
 import { getErrorMessage, PullRequestSection } from 'utils/Utils'
 import { CodeIcon } from 'utils/GitUtils'
-import type { TypesPullReq, TypesRepository } from 'services/code'
+import type { TypesPullReq, RepoRepositoryOutput } from 'services/code'
 import { LoadingSpinner } from 'components/LoadingSpinner/LoadingSpinner'
 import { TabTitleWithCount, tabContainerCSS } from 'components/TabTitleWithCount/TabTitleWithCount'
 import { ExecutionStatus } from 'components/ExecutionStatus/ExecutionStatus'
@@ -117,7 +117,7 @@ export default function PullRequest() {
 
         <Render when={repoMetadata && pullReqMetadata}>
           <>
-            <PullRequestMetaLine repoMetadata={repoMetadata as TypesRepository} {...pullReqMetadata} />
+            <PullRequestMetaLine repoMetadata={repoMetadata as RepoRepositoryOutput} {...pullReqMetadata} />
 
             <Container className={tabContainerCSS.tabsContainer}>
               <Tabs
@@ -148,12 +148,13 @@ export default function PullRequest() {
                       <Conversation
                         routingId={routingId}
                         standalone={standalone}
-                        repoMetadata={repoMetadata as TypesRepository}
+                        repoMetadata={repoMetadata as RepoRepositoryOutput}
                         pullReqMetadata={pullReqMetadata as TypesPullReq}
                         prChecksDecisionResult={pullReqChecksDecision}
                         onDescriptionSaved={() => {
                           setShowEditDescription(false)
                         }}
+                        pullReqCommits={pullReqCommits}
                         prStats={pullReqStats}
                         showEditDescription={showEditDescription}
                         onCancelEditDescription={() => setShowEditDescription(false)}
@@ -172,7 +173,7 @@ export default function PullRequest() {
                     ),
                     panel: (
                       <PullRequestCommits
-                        repoMetadata={repoMetadata as TypesRepository}
+                        repoMetadata={repoMetadata as RepoRepositoryOutput}
                         pullReqMetadata={pullReqMetadata as TypesPullReq}
                         pullReqCommits={pullReqCommits}
                       />
@@ -189,7 +190,7 @@ export default function PullRequest() {
                       />
                     ),
                     panel: (
-                      <Container className={css.changes}>
+                      <Container className={css.changes} data-page-section={PullRequestSection.FILES_CHANGED}>
                         {!!repoMetadata && !!pullReqMetadata && !!pullReqStats && (
                           <Changes
                             repoMetadata={repoMetadata}
@@ -217,8 +218,8 @@ export default function PullRequest() {
                     id: PullRequestSection.CHECKS,
                     title: (
                       <TabTitleWithCount
-                        icon="main-search"
-                        iconSize={14}
+                        icon={CodeIcon.CheckIcon}
+                        iconSize={16}
                         title={getString('checks')}
                         countElement={
                           pullReqChecksDecision?.overallStatus ? (
@@ -228,7 +229,8 @@ export default function PullRequest() {
                                   status={pullReqChecksDecision?.overallStatus}
                                   noBackground
                                   iconOnly
-                                  iconSize={15}
+                                  inPr
+                                  iconSize={pullReqChecksDecision?.overallStatus === 'failure' ? 17 : 15}
                                 />
 
                                 <Text
@@ -248,7 +250,7 @@ export default function PullRequest() {
                     ),
                     panel: (
                       <Checks
-                        repoMetadata={repoMetadata as TypesRepository}
+                        repoMetadata={repoMetadata as RepoRepositoryOutput}
                         pullReqMetadata={pullReqMetadata as TypesPullReq}
                         prChecksDecisionResult={pullReqChecksDecision}
                       />
